@@ -1,0 +1,17 @@
+{
+  "name": "salgaderia-printer-service",
+  "version": "1.0.0",
+  "description": "Serviço ESC/POS: recebe pedido JSON e imprime na térmica (USB ou rede)",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "node-thermal-printer": "^4.5.0",
+    "pino": "^9.5.0"
+  },
+  "engines": { "node": ">=20" }
+}

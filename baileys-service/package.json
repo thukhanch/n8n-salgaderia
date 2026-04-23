@@ -1,0 +1,20 @@
+{
+  "name": "salgaderia-baileys-service",
+  "version": "1.0.0",
+  "description": "Baileys WhatsApp bridge para o n8n (in: webhook para n8n, out: HTTP p/ enviar msg)",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0",
+    "undici": "^6.21.0"
+  },
+  "engines": { "node": ">=20" }
+}

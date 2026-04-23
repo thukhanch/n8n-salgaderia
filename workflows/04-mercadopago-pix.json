@@ -1,0 +1,221 @@
+{
+  "name": "Salgaderia - 04 Mercado Pago Pix (criação + webhook)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-start-sub",
+      "name": "When Called by Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1400, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.mercadopago.com/v1/payments",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.MP_ACCESS_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"},
+          {"name":"X-Idempotency-Key","value":"={{ $json.pedido.id }}"}
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ transaction_amount: Number($json.pedido.valor_total), description: 'Pedido #' + $json.pedido.codigo + ' - Salgaderia', payment_method_id: 'pix', notification_url: $vars.MP_WEBHOOK_URL, external_reference: $json.pedido.id, payer: { email: 'cliente+' + $json.pedido.codigo + '@salgaderia.local', first_name: ($json.pedido.nome_cliente || 'Cliente').split(' ')[0] } }) }}",
+        "options": {"timeout": 12000}
+      },
+      "id": "node-mp-create",
+      "name": "MP: Create Pix Payment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1180, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pedidos SET mp_payment_id=$2, mp_qr_code=$3, mp_qr_base64=$4, mp_status=$5 WHERE id=$1::uuid RETURNING codigo, telefone, nome_cliente, mp_qr_code;\nINSERT INTO pagamentos (pedido_id, provider, provider_id, metodo, valor, status, raw) VALUES ($1::uuid,'mercadopago',$2,'pix',$6,$5,$7::jsonb);",
+        "options": {"queryReplacement":"={{ $('When Called by Workflow').item.json.pedido.id }},={{ String($json.id) }},={{ $json.point_of_interaction?.transaction_data?.qr_code || '' }},={{ $json.point_of_interaction?.transaction_data?.qr_code_base64 || '' }},={{ $json.status }},={{ $('When Called by Workflow').item.json.pedido.valor_total }},={{ JSON.stringify($json) }}"}
+      },
+      "id": "node-save-mp",
+      "name": "Save MP Charge",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-960, 0],
+      "credentials": {"postgres": {"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-image",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('When Called by Workflow').item.json.pedido.telefone, imageBase64: $('MP: Create Pix Payment').item.json.point_of_interaction?.transaction_data?.qr_code_base64, caption: 'QR Code Pix - R$ ' + Number($('When Called by Workflow').item.json.pedido.valor_total).toFixed(2) + ' (Pedido #' + $('When Called by Workflow').item.json.pedido.codigo + ')' }) }}"
+      },
+      "id": "node-send-qr",
+      "name": "Enviar QR Code",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-740, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('When Called by Workflow').item.json.pedido.telefone, text: 'Pix copia-e-cola:\\n\\n' + ($('MP: Create Pix Payment').item.json.point_of_interaction?.transaction_data?.qr_code || '') + '\\n\\nAssim que o pagamento cair, te confirmo e mando pra cozinha 🥟' }) }}"
+      },
+      "id": "node-send-copy",
+      "name": "Enviar Copia-e-cola",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-740, 100]
+    },
+    { "parameters": {}, "id":"node-out","name":"Return","type":"n8n-nodes-base.noOp","typeVersion":1,"position":[-520,0] },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "salgaderia/mp-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-wh",
+      "name": "Webhook MP (IPN)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1400, 500],
+      "webhookId": "salgaderia-mp-ipn"
+    },
+    {
+      "parameters": {
+        "jsCode": "// MP manda { type:'payment', data:{id:'123'} }. Buscamos o pagamento.\nconst body = $json.body || $json;\nif ((body.type || body.topic) !== 'payment') return [{ json: { skip: true } }];\nconst id = body.data?.id || body.resource?.split('/').pop();\nreturn [{ json: { mp_payment_id: String(id) } }];"
+      },
+      "id": "node-parse-ipn",
+      "name": "Parse IPN",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1180, 500]
+    },
+    {
+      "parameters": {
+        "conditions": {"options":{"caseSensitive":true,"typeValidation":"strict"},"conditions":[{"id":"skip","leftValue":"={{ $json.skip }}","rightValue":true,"operator":{"type":"boolean","operation":"false"}}],"combinator":"and"}
+      },
+      "id": "node-if-skip",
+      "name": "If not skip",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-960, 500]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.mercadopago.com/v1/payments/{{ $json.mp_payment_id }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.MP_ACCESS_TOKEN }}"}
+        ]}
+      },
+      "id": "node-mp-get",
+      "name": "MP: Get Payment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-740, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pagamentos SET status=$2, raw=$3::jsonb WHERE provider_id=$1;\nUPDATE pedidos SET mp_status=$2, mp_paid_at=CASE WHEN $2='approved' THEN NOW() ELSE mp_paid_at END, status=CASE WHEN $2='approved' THEN 'PAGO' ELSE status END WHERE mp_payment_id=$1 RETURNING codigo, telefone, status, tipo_entrega;",
+        "options": {"queryReplacement":"={{ String($json.id) }},={{ $json.status }},={{ JSON.stringify($json) }}"}
+      },
+      "id": "node-upd-pag",
+      "name": "Update Pagamento+Pedido",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-520, 500],
+      "credentials": {"postgres": {"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+    {
+      "parameters": {
+        "conditions": {"options":{"caseSensitive":false},"conditions":[{"id":"ap","leftValue":"={{ $json.status }}","rightValue":"PAGO","operator":{"type":"string","operation":"equals"}}],"combinator":"and"}
+      },
+      "id": "node-if-ap",
+      "name": "If PAGO",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-300, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody":"json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.telefone, text: '✅ Pagamento confirmado! Pedido #' + $json.codigo + ' foi pra cozinha. Te aviso quando sair da fritura 🔥' }) }}"
+      },
+      "id": "node-send-ok",
+      "name": "Avisar Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-80, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.WEBHOOK_COZINHA_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[{"name":"Authorization","value":"=Bearer {{ $vars.COZINHA_TOKEN }}"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ codigo: $json.codigo, status: 'PAGO' }) }}"
+      },
+      "id": "node-send-kitchen",
+      "name": "Enviar Cozinha (pagou)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-80, 580]
+    },
+    {
+      "parameters": {"respondWith":"json","responseBody":"={\"ok\":true}","options":{"responseCode":200}},
+      "id": "node-ipn-ok",
+      "name": "IPN 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [140, 500]
+    }
+  ],
+  "connections": {
+    "When Called by Workflow":{ "main": [[{"node":"MP: Create Pix Payment","type":"main","index":0}]] },
+    "MP: Create Pix Payment":{ "main": [[{"node":"Save MP Charge","type":"main","index":0}]] },
+    "Save MP Charge":        { "main": [[{"node":"Enviar QR Code","type":"main","index":0},{"node":"Enviar Copia-e-cola","type":"main","index":0}]] },
+    "Enviar QR Code":        { "main": [[{"node":"Return","type":"main","index":0}]] },
+    "Enviar Copia-e-cola":   { "main": [[{"node":"Return","type":"main","index":0}]] },
+
+    "Webhook MP (IPN)":      { "main": [[{"node":"Parse IPN","type":"main","index":0}]] },
+    "Parse IPN":             { "main": [[{"node":"If not skip","type":"main","index":0}]] },
+    "If not skip":           { "main": [[{"node":"MP: Get Payment","type":"main","index":0}],[{"node":"IPN 200","type":"main","index":0}]] },
+    "MP: Get Payment":       { "main": [[{"node":"Update Pagamento+Pedido","type":"main","index":0}]] },
+    "Update Pagamento+Pedido":{ "main": [[{"node":"If PAGO","type":"main","index":0}]] },
+    "If PAGO":               { "main": [[{"node":"Avisar Cliente","type":"main","index":0},{"node":"Enviar Cozinha (pagou)","type":"main","index":0}],[{"node":"IPN 200","type":"main","index":0}]] },
+    "Avisar Cliente":        { "main": [[{"node":"IPN 200","type":"main","index":0}]] },
+    "Enviar Cozinha (pagou)":{ "main": [[{"node":"IPN 200","type":"main","index":0}]] }
+  },
+  "active": false,
+  "settings": {"executionOrder":"v1","saveDataErrorExecution":"all"},
+  "tags": [{"name":"salgaderia"},{"name":"mercadopago"},{"name":"pagamento"}]
+}

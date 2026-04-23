@@ -1,0 +1,151 @@
+{
+  "name": "Salgaderia - 06 Impressora Térmica",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-start",
+      "name": "When Called by Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1400, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $vars.PRINTER_HOST }}/print",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.PRINTER_SERVICE_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.pedido) }}",
+        "options": {"timeout": 10000, "redirect": {"redirect": {}}, "response": {"response": {"neverError": true}}}
+      },
+      "id": "node-print",
+      "name": "POST /print",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-1180, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {"options":{"caseSensitive":false},"conditions":[{"id":"ok","leftValue":"={{ $json.ok }}","rightValue":true,"operator":{"type":"boolean","operation":"true"}}],"combinator":"and"}
+      },
+      "id": "node-if",
+      "name": "If OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-960, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pedidos SET printed_at=NOW(), print_attempts=print_attempts+1 WHERE id=$1::uuid;",
+        "options": {"queryReplacement":"={{ $('When Called by Workflow').item.json.pedido.id }}"}
+      },
+      "id": "node-mark",
+      "name": "Marcar Impresso",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-740, -120],
+      "credentials": {"postgres": {"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pedidos SET print_attempts=print_attempts+1 WHERE id=$1::uuid;\nINSERT INTO eventos (pedido_id, tipo, payload) VALUES ($1::uuid, 'ERRO_IMPRESSORA', $2::jsonb);",
+        "options": {"queryReplacement":"={{ $('When Called by Workflow').item.json.pedido.id }},={{ JSON.stringify($json) }}"}
+      },
+      "id": "node-err",
+      "name": "Registrar Falha",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-740, 120],
+      "credentials": {"postgres": {"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SLACK_WEBHOOK_OPERACAO }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({text: '🖨️ Falha ao imprimir pedido #' + $('When Called by Workflow').item.json.pedido.codigo + ': ' + ($json.error || 'unknown')}) }}"
+      },
+      "id": "node-slack",
+      "name": "Alerta Slack Impressora",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-520, 120]
+    },
+    {
+      "parameters": {
+        "rule": {"interval":[{"field":"minutes","minutesInterval":5}]}
+      },
+      "id": "node-cron",
+      "name": "Cron 5min (retry)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-1400, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT row_to_json(p) AS pedido FROM vw_pedidos_nao_impressos p LIMIT 20;"
+      },
+      "id": "node-q",
+      "name": "Query: Não Impressos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-1180, 400],
+      "credentials": {"postgres": {"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $vars.PRINTER_HOST }}/print",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.PRINTER_SERVICE_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.pedido) }}",
+        "options": {"timeout": 10000, "response": {"response": {"neverError": true}}}
+      },
+      "id": "node-retry",
+      "name": "Retry Print",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-960, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pedidos SET printed_at=CASE WHEN $2::boolean THEN NOW() ELSE printed_at END, print_attempts=print_attempts+1 WHERE id=$1::uuid;",
+        "options": {"queryReplacement":"={{ $('Query: Não Impressos').item.json.pedido.id }},={{ $json.ok === true }}"}
+      },
+      "id": "node-retry-mark",
+      "name": "Atualizar Tentativa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-740, 400],
+      "credentials": {"postgres": {"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    }
+  ],
+  "connections": {
+    "When Called by Workflow":{ "main": [[{"node":"POST /print","type":"main","index":0}]] },
+    "POST /print":            { "main": [[{"node":"If OK","type":"main","index":0}]] },
+    "If OK":                  { "main": [[{"node":"Marcar Impresso","type":"main","index":0}],[{"node":"Registrar Falha","type":"main","index":0}]] },
+    "Registrar Falha":        { "main": [[{"node":"Alerta Slack Impressora","type":"main","index":0}]] },
+
+    "Cron 5min (retry)":      { "main": [[{"node":"Query: Não Impressos","type":"main","index":0}]] },
+    "Query: Não Impressos":   { "main": [[{"node":"Retry Print","type":"main","index":0}]] },
+    "Retry Print":            { "main": [[{"node":"Atualizar Tentativa","type":"main","index":0}]] }
+  },
+  "active": false,
+  "settings": {"executionOrder":"v1","saveDataErrorExecution":"all"},
+  "tags": [{"name":"salgaderia"},{"name":"impressora"}]
+}

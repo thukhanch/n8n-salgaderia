@@ -68,10 +68,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://{{ $vars.EVOLUTION_HOST }}/message/sendText/{{ $vars.EVOLUTION_INSTANCE }}",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
         "sendHeaders": true,
         "headerParameters": {"parameters": [
-          {"name": "apikey", "value": "={{ $vars.EVOLUTION_API_KEY }}"},
+          {"name": "Authorization", "value": "=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
           {"name": "Content-Type", "value": "application/json"}
         ]},
         "sendBody": true,
@@ -88,10 +88,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://{{ $vars.EVOLUTION_HOST }}/message/sendText/{{ $vars.EVOLUTION_INSTANCE }}",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
         "sendHeaders": true,
         "headerParameters": {"parameters": [
-          {"name": "apikey", "value": "={{ $vars.EVOLUTION_API_KEY }}"},
+          {"name": "Authorization", "value": "=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
           {"name": "Content-Type", "value": "application/json"}
         ]},
         "sendBody": true,

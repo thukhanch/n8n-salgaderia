@@ -1,61 +1,98 @@
-# Arquitetura - Sistema de Atendimento Salgaderia
+# Arquitetura v2 - Sistema de Atendimento Salgaderia
 
 ## 1. Visão geral
 
 ```
-┌──────────┐   Webhook    ┌──────────────┐   SQL   ┌──────────────┐
-│ WhatsApp │ ───────────▶ │   n8n 01     │ ──────▶ │  Postgres /  │
-│ (cliente)│ ◀─────────── │ Atendimento  │ ◀────── │   Supabase   │
-└──────────┘   Evolution  │  Principal   │         └──────────────┘
-                          │   + LLM      │                 ▲
-                          └──────┬───────┘                 │
-                                 │ HTTP POST               │
-                                 ▼                         │
-                          ┌──────────────┐                 │
-                          │   Cozinha    │                 │
-                          │ (TV/impr/ERP)│ ──────┐         │
-                          └──────┬───────┘       │callback │
-                                 │               │POST     │
-                                 ▼               ▼         │
-                          ┌──────────────────────────┐     │
-                          │  n8n 02 Status Cozinha   │─────┘
-                          └──────────────────────────┘
+                                     ┌──────────────────────────┐
+                                     │   Google Calendar        │
+                                     └───────────▲──────────────┘
+                                                 │ evento
+┌──────────┐  POST   ┌──────────┐   webhook     │              ┌──────────────┐
+│ Cliente  │◀──────▶│ Baileys  │──────────────▶│  n8n 01      │◀────▶ OpenAI │
+│ WhatsApp │         │ service  │               │ Atendimento  │      └────────┘
+└──────────┘         └─────▲────┘               │ + AI Agent   │
+                           │ /send-text         └──────┬───────┘
+                           │                           │ SQL
+                           │                           ▼
+                           │                    ┌──────────────┐
+                           │                    │  PostgreSQL  │
+                           │                    └──────▲───────┘
+                           │                           │
+                           │     ┌─────────────────────┼──────────────────┐
+                           │     │                     │                  │
+                     ┌─────┴─────┴────┐  ┌─────────────┴──┐     ┌────────┴───────┐
+                     │   n8n 04       │  │   n8n 06       │     │   n8n 02       │
+                     │  MercadoPago   │  │  Impressora    │     │  Status Cozinha│
+                     │  Pix (IPN)     │  │  Térmica       │     │  (callback)    │
+                     └─────▲──────────┘  └─────┬──────────┘     └────┬───────────┘
+                           │ webhook            │ POST /print         │
+                     ┌─────┴──────┐       ┌─────┴────────┐      ┌─────┴──────────┐
+                     │MercadoPago │       │ Printer svc  │      │   n8n 05       │
+                     │            │       │ ESC/POS      │      │   Motoboy      │
+                     └────────────┘       └──────────────┘      │(Lalamove/Uber) │
+                                                                └─────▲──────────┘
+                                                                      │ webhook
+                                                                ┌─────┴──────────┐
+                                                                │ Lalamove/Uber  │
+                                                                └────────────────┘
 
-                          ┌──────────────────────────┐
-                          │ n8n 03 Lembretes (cron)  │────▶ WhatsApp
-                          └──────────────────────────┘
+                     ┌────────────────┐   ┌────────────────┐
+                     │   n8n 03       │   │   n8n 07       │
+                     │  Lembretes     │   │  Google Cal    │
+                     │  (cron)        │   │  (agenda)      │
+                     └────────────────┘   └────────────────┘
+
+                     ┌────────────────┐
+                     │   n8n 08       │
+                     │  Features      │
+                     │  futuras       │
+                     └────────────────┘
 ```
 
 ## 2. Componentes
 
-| Camada          | Tecnologia sugerida                   | Motivo                                  |
-|-----------------|---------------------------------------|-----------------------------------------|
-| Canal           | Evolution API (WhatsApp não oficial)  | Baixo custo, roda no VPS, sem Meta BSP  |
-| Orquestração    | n8n (self-hosted em Docker)           | Workflows visuais, controle total       |
-| LLM             | OpenAI gpt-4o-mini                    | Barato (~R$0,01/conversa), JSON mode    |
-| Memória/Estado  | Postgres 15 (Supabase free)           | Views, JSONB, triggers                  |
-| Cozinha         | Webhook → display web ou ESC/POS      | Desacoplado do n8n                      |
-| Observabilidade | Slack webhook + tabela `eventos`      | Alertas + auditoria                     |
+| Camada          | Tecnologia                            | Motivo                                    |
+|-----------------|---------------------------------------|-------------------------------------------|
+| WhatsApp        | **Baileys** (Node.js) self-hosted     | Grátis, sem taxa, controle total          |
+| Orquestração    | n8n self-hosted                       | Workflows visuais                         |
+| LLM             | OpenAI gpt-4o-mini (JSON mode)        | Barato, saída estruturada                 |
+| Estado/Dados    | **PostgreSQL 15**                     | JSONB, triggers, views                    |
+| Pagamento       | **Mercado Pago** (Pix dinâmico)       | API madura, taxa baixa, IPN confiável     |
+| Entrega         | **Lalamove / Uber Direct / Loggi**    | APIs públicas, tracking automático        |
+| Cozinha física  | **Impressora térmica** (ESC/POS)      | Workflow padrão food service              |
+| Agenda          | **Google Calendar** API               | Dona já usa no celular                    |
+| Observabilidade | Slack + tabelas `eventos`/`pagamentos`| Alertas + auditoria                       |
 
-## 3. Fluxo de dados
+## 3. Serviços Docker
 
-1. Cliente envia mensagem → Evolution API chama webhook do n8n.
-2. Workflow 01 normaliza, busca/cria cliente, registra mensagem.
-3. AI Agent recebe contexto (estado + carrinho + histórico) e retorna JSON estruturado.
-4. Workflow atualiza estado do cliente e, se `acao=CRIAR_PEDIDO`, grava pedido + notifica cozinha.
-5. Resposta volta ao cliente via Evolution API.
-6. Cozinha atualiza status via Workflow 02 → cliente é notificado automaticamente.
-7. Workflow 03 (cron) envia lembretes e reengaja clientes parados.
+Ver `docker-compose.yml`:
+- `postgres` — banco
+- `n8n` — orquestrador
+- `baileys` — bridge WhatsApp
+- `printer` — bridge ESC/POS
 
-## 4. Por que essa separação?
+Recursos sugeridos:
+- VPS 2 vCPU / 4 GB RAM (Hetzner/Contabo ~R$ 35/mês) para os 3 primeiros
+- `printer` RODA NA LOJA (conectado à rede local da impressora)
 
-- **Workflow 01** é síncrono e rápido (< 3s). Não pode ter polling.
-- **Workflow 02** é desacoplado: a cozinha pode demorar horas para atualizar e isso não trava nada.
-- **Workflow 03** é idempotente via tabela `eventos` — nunca envia lembrete duplicado.
+## 4. Fluxo de pedido completo
 
-## 5. Deployment mínimo
+1. Cliente manda "oi" → Baileys → **Workflow 01**
+2. AI Agent coleta itens, endereço, pagamento
+3. Cria pedido no Postgres → dispara **em paralelo**:
+   - **04 Mercado Pago** cria QR Pix (se pix) e manda pro cliente
+   - **06 Impressora** imprime comanda na cozinha
+   - **07 Calendar** cria evento na agenda da dona
+4. MP confirma pagamento → status `PAGO` → notifica cliente e cozinha
+5. Cozinha toca "pronto" → **Workflow 02**:
+   - Se `retirada` → só avisa cliente
+   - Se `entrega` → **Workflow 05** chama motoboy + envia link de rastreio
+6. Motoboy entrega → webhook → status `ENTREGUE` → cliente recebe agradecimento
 
-- 1 VPS 2 vCPU / 4 GB (Hetzner/Contabo ~R$ 35/mês)
-- Docker: `n8n`, `evolution-api`, `postgres` (ou Supabase cloud)
-- Traefik/Caddy para TLS
-- Backup diário do Postgres para S3/B2
+## 5. Princípios de design
+
+- **Sub-workflows isolados** (`Execute Workflow`): cada integração em seu arquivo, testável e descartável
+- **Idempotência**: `X-Idempotency-Key` em MP, `UNIQUE` em `motoboy_order_id`, retry seguro na impressora
+- **Auditoria**: toda mudança importante gera linha em `eventos`
+- **Graceful degradation**: se MP cair, pedido continua (só não tem Pix); se impressora cair, cozinha vê pelo display; se motoboy falhar, Slack alerta humano
+- **Zero segredo em código**: tudo em `.env` e n8n Variables

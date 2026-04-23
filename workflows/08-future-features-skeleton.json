@@ -1,0 +1,180 @@
+{
+  "name": "Salgaderia - 08 Features Futuras (skeleton)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# Skeleton de features futuras\n\nCada bloco abaixo é um ponto de partida comentado. Ative só quando for implementar.\n\n1. **NPS / Feedback automático** (cron 1h após ENTREGUE)\n2. **Fidelidade / cashback** (após pagamento aprovado)\n3. **Transcrição de áudio** (Whisper antes do AI Agent)\n4. **Upsell / Cross-sell** (sugere bebida quando só tem salgado)\n5. **Broadcast marketing** (cupom para inativos > 30 dias)\n6. **Dashboard Metabase** (só aponta pro mesmo Postgres)\n7. **Multi-loja** (particionar por `loja_id`)\n\nCada um já tem tabela/coluna no schema.sql.",
+        "height": 700,
+        "width": 500
+      },
+      "id": "node-sticky",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-2000, -400]
+    },
+
+    {
+      "parameters": {"rule":{"interval":[{"field":"hours","hoursInterval":1}]}},
+      "id":"node-cron-nps",
+      "name":"Cron NPS 1h",
+      "type":"n8n-nodes-base.scheduleTrigger",
+      "typeVersion":1.2,
+      "position":[-1400, 0]
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT p.id, p.codigo, p.telefone, p.nome_cliente FROM pedidos p LEFT JOIN feedback f ON f.pedido_id=p.id WHERE p.status='ENTREGUE' AND p.atualizado_em BETWEEN NOW()-INTERVAL '2 hours' AND NOW()-INTERVAL '1 hour' AND f.id IS NULL LIMIT 50;"
+      },
+      "id":"node-q-nps",
+      "name":"Pedidos ENTREGUES s/ feedback",
+      "type":"n8n-nodes-base.postgres",
+      "typeVersion":2.5,
+      "position":[-1180, 0],
+      "credentials":{"postgres":{"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+    {
+      "parameters":{
+        "jsCode":"return $input.all().map(i => ({ json: { telefone: i.json.telefone, texto: `Oi ${i.json.nome_cliente.split(' ')[0]}! Como foi seu pedido #${i.json.codigo}? De 0 a 10, quanto você nos daria? 🥟` } }));"
+      },
+      "id":"node-msg-nps",
+      "name":"Montar Msg NPS",
+      "type":"n8n-nodes-base.code",
+      "typeVersion":2,
+      "position":[-960, 0]
+    },
+    {
+      "parameters":{
+        "method":"POST",
+        "url":"=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},{"name":"Content-Type","value":"application/json"}]},
+        "sendBody":true,
+        "specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify({ number: $json.telefone, text: $json.texto }) }}",
+        "options":{"batching":{"batch":{"batchSize":5,"batchInterval":1500}}}
+      },
+      "id":"node-send-nps",
+      "name":"Enviar NPS",
+      "type":"n8n-nodes-base.httpRequest",
+      "typeVersion":4.2,
+      "position":[-740, 0]
+    },
+
+    {
+      "parameters": {},
+      "id":"node-fid-start",
+      "name":"Hook Fidelidade (chamar após pagamento)",
+      "type":"n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion":1.1,
+      "position":[-1400, 400]
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"WITH pontos AS (SELECT FLOOR($2::numeric / 10) AS p) INSERT INTO fidelidade_transacoes (telefone, pedido_id, tipo, pontos, descricao) SELECT $1, $3::uuid, 'ACUMULO', p, 'Pedido #'||$4 FROM pontos WHERE p>0;\nUPDATE clientes SET pontos_fidelidade = pontos_fidelidade + FLOOR($2::numeric/10) WHERE telefone=$1 RETURNING telefone, pontos_fidelidade;",
+        "options":{"queryReplacement":"={{ $json.telefone }},={{ $json.valor_total }},={{ $json.pedido_id }},={{ $json.codigo }}"}
+      },
+      "id":"node-fid",
+      "name":"Creditar Pontos",
+      "type":"n8n-nodes-base.postgres",
+      "typeVersion":2.5,
+      "position":[-1180, 400],
+      "credentials":{"postgres":{"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+
+    {
+      "parameters": {},
+      "id":"node-audio-start",
+      "name":"Hook Áudio (chamar antes do AI Agent)",
+      "type":"n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion":1.1,
+      "position":[-1400, 800]
+    },
+    {
+      "parameters":{
+        "method":"POST",
+        "url":"https://api.openai.com/v1/audio/transcriptions",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{ $vars.OPENAI_API_KEY }}"}]},
+        "sendBody":true,
+        "contentType":"multipart-form-data",
+        "bodyParameters":{"parameters":[
+          {"name":"model","value":"whisper-1"},
+          {"name":"language","value":"pt"},
+          {"parameterType":"formBinaryData","name":"file","inputDataFieldName":"data"}
+        ]}
+      },
+      "id":"node-whisper",
+      "name":"OpenAI Whisper",
+      "type":"n8n-nodes-base.httpRequest",
+      "typeVersion":4.2,
+      "position":[-1180, 800]
+    },
+
+    {
+      "parameters":{"rule":{"interval":[{"field":"days","daysInterval":1,"triggerAtHour":10}]}},
+      "id":"node-cron-bcast",
+      "name":"Cron Diário 10h",
+      "type":"n8n-nodes-base.scheduleTrigger",
+      "typeVersion":1.2,
+      "position":[-1400, 1200]
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT telefone, nome FROM clientes WHERE ultima_msg_em < NOW()-INTERVAL '30 days' AND estado_atual='FINALIZADO' LIMIT 100;"
+      },
+      "id":"node-q-bcast",
+      "name":"Inativos 30d",
+      "type":"n8n-nodes-base.postgres",
+      "typeVersion":2.5,
+      "position":[-1180, 1200],
+      "credentials":{"postgres":{"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+    {
+      "parameters":{
+        "jsCode":"return $input.all().map(i => ({ json: { telefone: i.json.telefone, texto: `Oi ${i.json.nome || ''}! Saudade por aqui 💛 Te dou 10% de desconto no próximo pedido, cupom: VOLTA10 (válido hoje).` } }));"
+      },
+      "id":"node-msg-bcast",
+      "name":"Montar Msg Broadcast",
+      "type":"n8n-nodes-base.code",
+      "typeVersion":2,
+      "position":[-960, 1200]
+    },
+    {
+      "parameters":{
+        "method":"POST",
+        "url":"=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"}]},
+        "sendBody":true,
+        "specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify({ number: $json.telefone, text: $json.texto }) }}",
+        "options":{"batching":{"batch":{"batchSize":3,"batchInterval":2500}}}
+      },
+      "id":"node-send-bcast",
+      "name":"Enviar Broadcast",
+      "type":"n8n-nodes-base.httpRequest",
+      "typeVersion":4.2,
+      "position":[-740, 1200]
+    }
+  ],
+  "connections": {
+    "Cron NPS 1h":                    { "main": [[{"node":"Pedidos ENTREGUES s/ feedback","type":"main","index":0}]] },
+    "Pedidos ENTREGUES s/ feedback":  { "main": [[{"node":"Montar Msg NPS","type":"main","index":0}]] },
+    "Montar Msg NPS":                 { "main": [[{"node":"Enviar NPS","type":"main","index":0}]] },
+
+    "Hook Fidelidade (chamar após pagamento)":{ "main": [[{"node":"Creditar Pontos","type":"main","index":0}]] },
+
+    "Hook Áudio (chamar antes do AI Agent)":{ "main": [[{"node":"OpenAI Whisper","type":"main","index":0}]] },
+
+    "Cron Diário 10h":                { "main": [[{"node":"Inativos 30d","type":"main","index":0}]] },
+    "Inativos 30d":                   { "main": [[{"node":"Montar Msg Broadcast","type":"main","index":0}]] },
+    "Montar Msg Broadcast":           { "main": [[{"node":"Enviar Broadcast","type":"main","index":0}]] }
+  },
+  "active": false,
+  "settings": {"executionOrder":"v1","saveDataErrorExecution":"all"},
+  "tags": [{"name":"salgaderia"},{"name":"futuro"}]
+}

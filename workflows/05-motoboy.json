@@ -1,0 +1,243 @@
+{
+  "name": "Salgaderia - 05 Motoboy (Lalamove + webhook)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-start",
+      "name": "When Called by Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1400, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false},
+          "conditions": [
+            {"id":"t1","leftValue":"={{ $json.pedido.tipo_entrega }}","rightValue":"entrega","operator":{"type":"string","operation":"equals"}},
+            {"id":"t2","leftValue":"={{ $json.pedido.motoboy_order_id }}","rightValue":"","operator":{"type":"string","operation":"empty"}}
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-if-entrega",
+      "name": "If entrega & não chamado",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-1180, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Geocode simples via Google Maps (opcional) — aqui retorna endereço bruto.\n// Em produção: trocar por HTTP Request para Google Geocoding API e setar lat/lng.\nconst p = $json.pedido;\nreturn [{ json: { ...p, pickup: { address: $vars.LOJA_ENDERECO, lat: Number($vars.LOJA_LAT), lng: Number($vars.LOJA_LNG) }, dropoff: { address: p.endereco, lat: p.endereco_lat, lng: p.endereco_lng } } }];"
+      },
+      "id": "node-prep",
+      "name": "Preparar Geocoding",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-960, 0]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"p1","leftValue":"={{ $vars.MOTOBOY_PROVIDER }}","rightValue":"lalamove","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"LALAMOVE"},
+            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"p2","leftValue":"={{ $vars.MOTOBOY_PROVIDER }}","rightValue":"uber_direct","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"UBER"},
+            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"p3","leftValue":"={{ $vars.MOTOBOY_PROVIDER }}","rightValue":"loggi","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"LOGGI"}
+          ]
+        },
+        "options": {"fallbackOutput":"extra"}
+      },
+      "id": "node-switch-prov",
+      "name": "Switch Provider",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [-740, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://rest.lalamove.com/v3/orders",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=hmac {{ $vars.LALAMOVE_API_KEY }}:{{ $now.toMillis() }}:{{ $vars.LALAMOVE_HMAC }}"},
+          {"name":"Market","value":"BR"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: { serviceType: 'MOTORCYCLE', language: 'pt_BR', stops: [ { coordinates: { lat: String($json.pickup.lat), lng: String($json.pickup.lng) }, address: $json.pickup.address }, { coordinates: { lat: String($json.dropoff.lat), lng: String($json.dropoff.lng) }, address: $json.dropoff.address } ], item: { quantity: String($json.quantidade_total), weight: 'LESS_THAN_3_KG', categories: ['FOOD_DELIVERY'] }, requesterContact: { name: $vars.LOJA_NOME, phone: $vars.LOJA_TELEFONE }, deliveries: [ { toStop: 1, toContact: { name: $json.nome_cliente, phone: '+55' + $json.telefone }, remarks: 'Pedido #' + $json.codigo } ] } }) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "node-lalamove",
+      "name": "Lalamove: Place Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-520, -200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.uber.com/v1/customers/{{ $vars.UBER_CUSTOMER_ID }}/deliveries",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.UBER_DIRECT_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ pickup_address: $json.pickup.address, pickup_name: $vars.LOJA_NOME, pickup_phone_number: $vars.LOJA_TELEFONE, dropoff_address: $json.dropoff.address, dropoff_name: $json.nome_cliente, dropoff_phone_number: '+55' + $json.telefone, manifest_items: [{ name: 'Salgados pedido #' + $json.codigo, quantity: $json.quantidade_total }] }) }}",
+        "options":{"timeout":15000}
+      },
+      "id": "node-uber",
+      "name": "Uber Direct: Create",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-520, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.loggi.com/api/v2/orders/",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=ApiKey {{ $vars.LOGGI_API_KEY }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ shop_id: Number($vars.LOGGI_SHOP_ID), pickups: [{ address: $json.pickup.address, instructions: 'Retirar pedido #' + $json.codigo }], packages: [{ eta: 40, dimensions: {width:20,height:20,length:20,weight:1.5}, recipient: { name: $json.nome_cliente, phone: '+55' + $json.telefone }, address: $json.dropoff.address }] }) }}"
+      },
+      "id": "node-loggi",
+      "name": "Loggi: Create Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-520, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SLACK_WEBHOOK_OPERACAO }}",
+        "sendBody":true,
+        "specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify({text:'🛵 Chamar motoboy MANUAL para pedido #' + $json.codigo + ' — ' + $json.endereco + ' — Cliente: ' + $json.nome_cliente + ' (' + $json.telefone + ')'}) }}"
+      },
+      "id": "node-manual",
+      "name": "Fallback: Chamar Manual (Slack)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-520, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza resposta de cada provider\nconst p = $vars.MOTOBOY_PROVIDER;\nconst r = $json;\nlet out = { provider: p, order_id: null, tracking_url: null, fee: null, status: 'REQUESTED', raw: r };\nif (p==='lalamove') { out.order_id = r.data?.orderId; out.tracking_url = r.data?.shareLink; out.fee = Number(r.data?.priceBreakdown?.total||0); }\nelse if (p==='uber_direct') { out.order_id = r.id; out.tracking_url = r.tracking_url; out.fee = Number(r.fee/100||0); }\nelse if (p==='loggi') { out.order_id = String(r.pk||r.id||''); out.tracking_url = r.tracking_url; out.fee = Number(r.estimated_price||0); }\nelse { out.provider = 'manual'; out.status = 'REQUESTED_MANUAL'; }\nreturn [{ json: out }];"
+      },
+      "id": "node-norm",
+      "name": "Normalizar Resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-300, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pedidos SET motoboy_provider=$2, motoboy_order_id=$3, motoboy_tracking_url=$4, motoboy_fee=$5, motoboy_status=$6, status='SAIU_ENTREGA' WHERE id=$1::uuid RETURNING codigo, telefone;\nINSERT INTO entregas (pedido_id, provider, provider_order_id, status, tracking_url, fee, raw) VALUES ($1::uuid, $2, $3, $6, $4, $5, $7::jsonb);",
+        "options": {"queryReplacement":"={{ $('Preparar Geocoding').item.json.id }},={{ $json.provider }},={{ $json.order_id || '' }},={{ $json.tracking_url || '' }},={{ $json.fee || 0 }},={{ $json.status }},={{ JSON.stringify($json.raw || {}) }}"}
+      },
+      "id": "node-save",
+      "name": "Salvar Entrega",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-80, 0],
+      "credentials": {"postgres": {"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.telefone, text: '🛵 Motoboy a caminho! Pedido #' + $json.codigo + '.' + ($('Normalizar Resposta').item.json.tracking_url ? ('\\nRastreio: ' + $('Normalizar Resposta').item.json.tracking_url) : '') }) }}"
+      },
+      "id": "node-notify",
+      "name": "Avisar Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [140, 0]
+    },
+
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "salgaderia/motoboy-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-wh-mb",
+      "name": "Webhook Motoboy",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1400, 600],
+      "webhookId": "salgaderia-motoboy-wh"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza webhook de cada provider para: {order_id, status, driver:{name,phone}}\nconst b = $json.body || {};\nconst provider = $json.headers?.['x-provider'] || b.provider || $vars.MOTOBOY_PROVIDER;\nlet out = { provider, order_id: null, status: null, driver_name: null, driver_phone: null, raw: b };\nif (provider==='lalamove') { out.order_id=b.data?.orderId; out.status=b.data?.status; out.driver_name=b.data?.driverName; out.driver_phone=b.data?.driverPhone; }\nelse if (provider==='uber_direct') { out.order_id=b.data?.id; out.status=b.status; out.driver_name=b.data?.courier?.name; out.driver_phone=b.data?.courier?.phone_number; }\nelse if (provider==='loggi') { out.order_id=String(b.order_id); out.status=b.status; }\nreturn [{ json: out }];"
+      },
+      "id": "node-parse-mb",
+      "name": "Parse Webhook Motoboy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1180, 600]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pedidos SET motoboy_status=$2, motoboy_driver_name=COALESCE(NULLIF($3,''),motoboy_driver_name), motoboy_driver_phone=COALESCE(NULLIF($4,''),motoboy_driver_phone), status=CASE WHEN $2 IN ('DELIVERED','COMPLETED') THEN 'ENTREGUE' WHEN $2 IN ('CANCELED','CANCELLED','FAILED') THEN 'CANCELADO' ELSE status END WHERE motoboy_order_id=$1 RETURNING codigo, telefone, status;\nUPDATE entregas SET status=$2, driver_name=COALESCE(NULLIF($3,''),driver_name), driver_phone=COALESCE(NULLIF($4,''),driver_phone), delivered_at=CASE WHEN $2 IN ('DELIVERED','COMPLETED') THEN NOW() ELSE delivered_at END, raw=$5::jsonb WHERE provider_order_id=$1;",
+        "options": {"queryReplacement":"={{ $json.order_id }},={{ $json.status }},={{ $json.driver_name || '' }},={{ $json.driver_phone || '' }},={{ JSON.stringify($json.raw) }}"}
+      },
+      "id": "node-upd-mb",
+      "name": "Update Entrega",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-960, 600],
+      "credentials": {"postgres": {"id":"PG_SALGADERIA","name":"Postgres Salgaderia"}}
+    },
+    {
+      "parameters": {"respondWith":"json","responseBody":"={\"ok\":true}","options":{"responseCode":200}},
+      "id": "node-wh-ok",
+      "name": "WH OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-740, 600]
+    }
+  ],
+  "connections": {
+    "When Called by Workflow":{ "main": [[{"node":"If entrega & não chamado","type":"main","index":0}]] },
+    "If entrega & não chamado":{ "main": [[{"node":"Preparar Geocoding","type":"main","index":0}],[]] },
+    "Preparar Geocoding":     { "main": [[{"node":"Switch Provider","type":"main","index":0}]] },
+    "Switch Provider":        { "main": [
+      [{"node":"Lalamove: Place Order","type":"main","index":0}],
+      [{"node":"Uber Direct: Create","type":"main","index":0}],
+      [{"node":"Loggi: Create Order","type":"main","index":0}],
+      [{"node":"Fallback: Chamar Manual (Slack)","type":"main","index":0}]
+    ]},
+    "Lalamove: Place Order":  { "main": [[{"node":"Normalizar Resposta","type":"main","index":0}]] },
+    "Uber Direct: Create":    { "main": [[{"node":"Normalizar Resposta","type":"main","index":0}]] },
+    "Loggi: Create Order":    { "main": [[{"node":"Normalizar Resposta","type":"main","index":0}]] },
+    "Fallback: Chamar Manual (Slack)":{ "main": [[{"node":"Normalizar Resposta","type":"main","index":0}]] },
+    "Normalizar Resposta":    { "main": [[{"node":"Salvar Entrega","type":"main","index":0}]] },
+    "Salvar Entrega":         { "main": [[{"node":"Avisar Cliente","type":"main","index":0}]] },
+
+    "Webhook Motoboy":        { "main": [[{"node":"Parse Webhook Motoboy","type":"main","index":0}]] },
+    "Parse Webhook Motoboy":  { "main": [[{"node":"Update Entrega","type":"main","index":0}]] },
+    "Update Entrega":         { "main": [[{"node":"WH OK","type":"main","index":0}]] }
+  },
+  "active": false,
+  "settings": {"executionOrder":"v1","saveDataErrorExecution":"all"},
+  "tags": [{"name":"salgaderia"},{"name":"motoboy"},{"name":"entrega"}]
+}

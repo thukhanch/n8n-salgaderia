@@ -1,145 +1,172 @@
-# Guia de Integrações & Setup
+# Guia de Integrações & Setup (v2)
+
+> Quick-start para subir todo o stack do zero em ~40 minutos.
 
 ## 0. Pré-requisitos
 
-- VPS Linux com Docker e Docker Compose
-- Domínio com DNS apontando (para TLS em Evolution e n8n)
-- Conta OpenAI com saldo (~R$ 20 cobre centenas de pedidos)
+- VPS Linux (Hetzner/Contabo 2c/4g) com Docker + Docker Compose
+- Domínio apontando para o VPS (para TLS)
+- Conta OpenAI com ~R$ 20 de saldo
+- Conta Mercado Pago (CNPJ ou CPF)
+- Impressora térmica ESC/POS conectada à rede local da loja
+- WhatsApp do negócio (celular ou número dedicado)
 
-## 1. Postgres / Supabase
+## 1. Clonar e configurar
 
-**Opção A — Supabase (recomendado para começar):**
-1. Criar projeto em https://supabase.com
-2. `SQL editor` → colar conteúdo de `database/schema.sql` → Run
-3. Copiar Host / Password para `.env`
-4. Habilitar **Connection Pooler** (porta 6543) para evitar limite de conexões do n8n
-
-**Opção B — Postgres no mesmo VPS:**
-```yaml
-# docker-compose.yml (trecho)
-postgres:
-  image: postgres:15
-  environment:
-    POSTGRES_DB: salgaderia
-    POSTGRES_USER: salgaderia
-    POSTGRES_PASSWORD: ${PG_PASSWORD}
-  volumes: ["./pg-data:/var/lib/postgresql/data"]
-```
-
-Rodar o schema:
 ```bash
-docker compose exec postgres psql -U salgaderia -d salgaderia < database/schema.sql
+git clone <repo> && cd n8n-salgaderia
+cp .env.example .env
+# edite .env com seus valores
 ```
 
-## 2. Evolution API (WhatsApp)
-
-Instalar ao lado do n8n:
-```yaml
-evolution-api:
-  image: atendai/evolution-api:v2
-  environment:
-    - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
-    - DATABASE_PROVIDER=postgresql
-    - DATABASE_CONNECTION_URI=postgresql://evolution:senha@postgres:5432/evolution
-  ports: ["8080:8080"]
+Gerar chave de criptografia do n8n:
+```bash
+echo "N8N_ENCRYPTION_KEY=$(openssl rand -hex 32)" >> .env
 ```
 
-Passo a passo:
-1. `curl -X POST https://evolution.seudominio.com/instance/create -H "apikey: $EVOLUTION_API_KEY" -d '{"instanceName":"salgaderia","qrcode":true}'`
-2. Abrir `/manager` no browser → escanear QR Code com o WhatsApp do negócio
-3. Configurar webhook para o n8n:
-   ```bash
-   curl -X POST https://evolution.seudominio.com/webhook/set/salgaderia \
-     -H "apikey: $EVOLUTION_API_KEY" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "url": "https://n8n.seudominio.com/webhook/salgaderia/whatsapp",
-       "webhook_by_events": false,
-       "events": ["MESSAGES_UPSERT"]
-     }'
-   ```
+## 2. Subir stack
 
-## 3. n8n
+```bash
+docker compose up -d postgres
+# aguarde DB inicializar + rodar schema.sql
 
-```yaml
-n8n:
-  image: n8nio/n8n:latest
-  environment:
-    - N8N_HOST=n8n.seudominio.com
-    - N8N_PROTOCOL=https
-    - WEBHOOK_URL=https://n8n.seudominio.com
-    - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-    - DB_TYPE=postgresdb
-    - DB_POSTGRESDB_HOST=postgres
-    - DB_POSTGRESDB_DATABASE=n8n
-  volumes: ["./n8n-data:/home/node/.n8n"]
+docker compose up -d n8n
+# acesse https://n8n.seudominio.com e crie usuário admin
+
+docker compose up -d baileys
+docker compose logs -f baileys
+# escaneie o QR code com o WhatsApp do negócio
 ```
 
-### 3.1 Credenciais a criar no n8n (Settings → Credentials)
+## 3. n8n: credenciais + variáveis
 
-| Nome              | Tipo       | Campos                                   |
-|-------------------|------------|------------------------------------------|
-| Postgres Salgaderia | Postgres | host/port/db/user/pwd (SSL=on em Supabase) |
-| OpenAI            | OpenAI API | API Key                                  |
+### 3.1 Credentials
+| Nome                         | Tipo                       | Valores                             |
+|------------------------------|----------------------------|-------------------------------------|
+| Postgres Salgaderia          | Postgres                   | host=postgres, db=salgaderia        |
+| OpenAI                       | OpenAI API                 | `OPENAI_API_KEY`                    |
+| Google Calendar              | Google Calendar OAuth2 API | Client ID/Secret + autorizar       |
 
-### 3.2 Variáveis globais (Settings → Variables)
+### 3.2 Variables (copiar do .env)
+Veja `.env.example` — atenção especial:
+- `PROMPT_DONA_SALGADA` → colar conteúdo completo de `prompts/ai-system-prompt.md`
+- `BAILEYS_HOST=baileys:3001` (dentro do compose)
 
-Copie do `.env.example`. Importante: `PROMPT_DONA_SALGADA` contém o conteúdo completo de `prompts/ai-system-prompt.md`.
+## 4. Import dos 8 workflows
 
-### 3.3 Import dos workflows
+Na ordem:
+1. `01-atendimento-principal.json`
+2. `02-status-cozinha.json`
+3. `03-lembretes-followup.json`
+4. `04-mercadopago-pix.json`
+5. `05-motoboy.json`
+6. `06-impressora-termica.json`
+7. `07-google-agenda.json`
+8. `08-future-features-skeleton.json` (deixe inativo até precisar)
 
-1. `Import from File` → `workflows/01-atendimento-principal.json`
-2. Idem para 02 e 03
-3. Em cada workflow, re-vincule a credencial Postgres (os IDs são placeholders)
-4. Ative os três workflows (toggle no topo)
+Para cada um:
+- Re-vincular **Postgres Salgaderia** nas credenciais (os IDs são placeholders)
+- No Workflow 01, nos nodes **Execute Workflow**, selecionar os sub-workflows importados (04, 06, 07)
+- No Workflow 02, no node **Execute Workflow**, selecionar o 05
 
-## 4. Webhook da cozinha
+## 5. Configurar webhooks externos
 
-Você tem 3 opções:
+### Baileys → n8n
+Já automático (o service posta em `BAILEYS_WEBHOOK_N8N_URL`).
 
-**A. Display web simples (mais rápido de ter em produção):**
-- Página web que faz long-poll na view `vw_pedidos_cozinha`
-- n8n `node-cozinha` só serve para invalidar cache (opcional)
-- Atualização de status: botão na tela → `POST /salgaderia/cozinha-status` (Workflow 02)
+### Mercado Pago (IPN)
+Painel → Suas integrações → Notificações → Webhooks:
+- URL: `https://n8n.seudominio.com/webhook/salgaderia/mp-webhook`
+- Evento: `payment`
 
-**B. Integração com ERP (Omie/Bling):**
-- `WEBHOOK_COZINHA_URL` = endpoint do ERP que aceita pedido
-- Callback de status vem do ERP
+### Motoboy
+No painel do provider escolhido (Lalamove/Uber/Loggi), configurar webhook:
+- URL: `https://n8n.seudominio.com/webhook/salgaderia/motoboy-webhook`
+- Header adicional: `x-provider: lalamove` (ou `uber_direct`, etc)
 
-**C. Impressora térmica (bobina 80mm):**
-- Microserviço Python com `python-escpos` escutando em `WEBHOOK_COZINHA_URL`
-- Imprime comanda direto na cozinha
+### Cozinha → n8n (status)
+O display/ERP da cozinha deve fazer `POST .../salgaderia/cozinha-status`
+com `{ codigo, status }` e header `Authorization: Bearer ${COZINHA_TOKEN}`.
 
-Em todos os casos: o callback de atualização de status deve bater no **Workflow 02** com body:
-```json
-{ "codigo": 42, "status": "EM_PREPARO" }
+## 6. Impressora térmica
+
+Rodando **na loja** (não no VPS), pois precisa acesso à rede local:
+
+```bash
+# máquina da loja (Linux mini-PC, Raspberry Pi, etc)
+git clone <repo> && cd n8n-salgaderia/printer-service
+cp ../.env.example .env  # ou só as vars PRINTER_*
+docker build -t salgaderia-printer .
+docker run -d --restart unless-stopped \
+  -p 3002:3002 \
+  -e PRINTER_INTERFACE=tcp://192.168.1.50:9100 \
+  -e SERVICE_TOKEN=$PRINTER_SERVICE_TOKEN \
+  salgaderia-printer
 ```
-e header `Authorization: Bearer ${COZINHA_TOKEN}`.
 
-## 5. Pagamento (Pix)
+No n8n, `PRINTER_HOST` precisa ser alcançável do VPS:
+- Opção A: VPN entre loja e VPS (Tailscale — recomendado)
+- Opção B: expor printer-service via DDNS + firewall (porta fechada exceto VPS)
+- Opção C: rodar n8n TAMBÉM na loja (mais simples se não precisa acesso remoto)
 
-MVP: Pix estático (chave copia-e-cola). Cliente envia comprovante como imagem →
-operação confirma manualmente via painel.
+## 7. Google Calendar
 
-V2 (opcional): Pix dinâmico via Efí/Mercado Pago:
-- Workflow extra cria cobrança no ato da confirmação
-- Webhook da PSP atualiza `pedidos.status='PAGO'` e dispara cozinha
+1. https://console.cloud.google.com → novo projeto
+2. APIs & Services → Enable **Google Calendar API**
+3. Credentials → OAuth 2.0 → Web application
+4. Redirect URI: `https://n8n.seudominio.com/rest/oauth2-credential/callback`
+5. No n8n, criar credential **Google Calendar OAuth2 API** → autorizar com conta da loja
+6. Criar calendário "Produção Salgados" → copiar ID → `GCAL_CALENDAR_ID`
 
-## 6. Teste end-to-end
+## 8. Mercado Pago
 
-1. Mande "oi" para o número → deve receber saudação + cardápio em < 5s
-2. "quero 15 coxinhas, pra retirar" → deve confirmar valor
-3. "confirmo, pix, Marina" → recebe chave Pix
-4. Na cozinha, mudar status para `EM_PREPARO` → cliente recebe notificação
-5. Mudar para `PRONTO` → cliente recebe aviso
-6. `SELECT * FROM pedidos ORDER BY criado_em DESC LIMIT 1` → pedido gravado
+1. https://www.mercadopago.com.br/developers/panel
+2. Criar aplicação → copiar **Access Token (produção)**
+3. Configurar webhook de notificação (passo 5)
+4. Para aceitar Pix em produção, a conta precisa estar aprovada (documento enviado)
 
-## 7. Custos estimados (200 pedidos/mês)
+## 9. Motoboy (exemplo Lalamove)
 
-| Item              | Custo/mês       |
-|-------------------|-----------------|
-| VPS 2c/4g         | R$ 35           |
-| OpenAI gpt-4o-mini| R$ 5–15         |
-| Supabase free     | R$ 0            |
-| Domínio           | R$ 3            |
-| **Total**         | **~R$ 45**      |
+1. https://developers.lalamove.com → cadastro
+2. Sandbox key grátis imediatamente
+3. Para produção: conversar com comercial
+4. Configurar webhook (passo 5)
+
+## 10. Teste end-to-end
+
+Mande no WhatsApp da loja, de outro número:
+
+```
+1. "oi"
+   → deve receber saudação + cardápio em <5s
+2. "quero 15 coxinhas, pra entregar na Rua X, 100"
+   → deve confirmar valor + taxa
+3. "confirmo, pix, Marina"
+   → deve receber QR Code + copia-e-cola
+4. Pagar no MP (teste) ou forçar via painel
+   → Cliente recebe "pagamento confirmado"
+   → Impressora imprime comanda
+   → Evento aparece no Google Calendar
+5. Na cozinha, POST para /salgaderia/cozinha-status {codigo, status:PRONTO}
+   → Como é ENTREGA: motoboy é chamado automaticamente
+   → Cliente recebe link de rastreio
+6. Motoboy marca entregue → webhook → cliente recebe agradecimento
+```
+
+Conferência SQL:
+```sql
+SELECT codigo, status, mp_status, motoboy_status, printed_at, gcal_event_id
+FROM pedidos ORDER BY criado_em DESC LIMIT 1;
+```
+
+## 11. Custos estimados (300 pedidos/mês)
+
+| Item                   | Custo/mês     |
+|------------------------|---------------|
+| VPS 2c/4g              | R$ 35         |
+| OpenAI gpt-4o-mini     | R$ 10–20      |
+| Mercado Pago (0,99%)   | ~R$ 30 (1% do faturamento) |
+| Motoboy                | pago pelo cliente |
+| Google Calendar        | R$ 0          |
+| Domínio                | R$ 3          |
+| **Total fixo**         | **~R$ 70**    |

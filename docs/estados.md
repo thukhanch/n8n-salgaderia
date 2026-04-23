@@ -60,8 +60,9 @@ O estado é o que o AI Agent usa para decidir o que perguntar/fazer.
 | AGUARDANDO_PAGAMENTO  | Workflow 01 (AI)       | Pergunta forma; se Pix, envia chave e aguarda      |
 | PEDIDO_CONFIRMADO     | Workflow 01 (ao CRIAR) | Informa tempo; dispara cozinha                     |
 | EM_PREPARO            | Workflow 02            | Notifica cliente "saindo da fritura"               |
-| PRONTO                | Workflow 02            | Notifica pronto + instrução de retirada/entrega    |
-| FINALIZADO            | Workflow 02            | Fecha ciclo; reinicia no próximo "oi"              |
+| PRONTO                | Workflow 02            | Notifica pronto; se entrega, dispara Workflow 05   |
+| SAIU_ENTREGA          | Workflow 05            | Motoboy a caminho; envia link de rastreio          |
+| FINALIZADO            | Workflow 02/05         | Fecha ciclo; reinicia no próximo "oi"              |
 | HUMANO                | Workflow 01 (fallback) | Bot pausa respostas; operação humana assume        |
 
 ## Regras invariantes

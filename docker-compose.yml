@@ -1,0 +1,60 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: salgaderia
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-trocar}
+      POSTGRES_DB: salgaderia
+    volumes:
+      - ./pg-data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    ports: ["5432:5432"]
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    depends_on: [postgres]
+    environment:
+      - N8N_HOST=${N8N_HOST:-n8n.local}
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=${WEBHOOK_URL:-https://n8n.local}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_DATABASE=salgaderia
+      - DB_POSTGRESDB_USER=salgaderia
+      - DB_POSTGRESDB_PASSWORD=${PG_PASSWORD}
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+    ports: ["5678:5678"]
+
+  baileys:
+    build: ./baileys-service
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - AUTH_DIR=/app/auth
+      - WEBHOOK_N8N_URL=${BAILEYS_WEBHOOK_N8N_URL}
+      - SERVICE_TOKEN=${BAILEYS_SERVICE_TOKEN}
+    volumes:
+      - ./baileys-auth:/app/auth
+    ports: ["3001:3001"]
+
+  printer:
+    build: ./printer-service
+    restart: unless-stopped
+    environment:
+      - PORT=3002
+      - PRINTER_TYPE=${PRINTER_TYPE:-EPSON}
+      - PRINTER_INTERFACE=${PRINTER_INTERFACE:-tcp://192.168.1.50:9100}
+      - PRINTER_WIDTH=${PRINTER_WIDTH:-48}
+      - SHOP_NAME=${SHOP_NAME:-SALGADERIA DO BAIRRO}
+      - SERVICE_TOKEN=${PRINTER_SERVICE_TOKEN}
+    ports: ["3002:3002"]
+    # para USB, descomente:
+    # devices: ["/dev/usb/lp0:/dev/usb/lp0"]
+    # privileged: true
