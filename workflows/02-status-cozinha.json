@@ -29,7 +29,7 @@
             {
               "id": "auth",
               "leftValue": "={{ $json.headers.authorization }}",
-              "rightValue": "Bearer cozinha-token-pendente",
+              "rightValue": "=Bearer {{ $vars.COZINHA_TOKEN }}",
               "operator": {
                 "type": "string",
                 "operation": "equals"
@@ -226,19 +226,23 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://127.0.0.1:3000/api/whatsapp/sessions/a152e231-fd07-4186-91ab-724b2893c1ba/send",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Content-Type",
               "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"
             }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: $json.telefone, text: $json.texto }) }}",
+        "jsonBody": "={{ JSON.stringify({ number: $json.telefone, text: $json.texto }) }}",
         "options": {
           "timeout": 10000
         }

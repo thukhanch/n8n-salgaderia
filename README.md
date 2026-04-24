@@ -8,7 +8,7 @@ pagamento Pix, entrega com motoboy, impressão em cozinha e agenda integrada.
 - **n8n** (orquestração) — 8 workflows importáveis
 - **Baileys** (WhatsApp) — microserviço Node.js próprio
 - **PostgreSQL** — estado, pedidos, conversas, pagamentos, entregas, auditoria
-- **OpenAI gpt-4o-mini** — AI Agent com saída JSON estruturada
+- **OpenAI-compatible API** — AI Agent com saída JSON estruturada (ex.: OpenAI ou gateway local 9router)
 - **Mercado Pago** — Pix dinâmico + confirmação via IPN
 - **Lalamove / Uber Direct / Loggi** — motoboy automático
 - **Impressora térmica ESC/POS** — microserviço Node.js
@@ -97,7 +97,7 @@ Setup completo em `docs/integracoes.md`.
 - [x] **Impressora térmica** com retry automático
 - [x] **Google Calendar** — evento por pedido, cor por tipo, atualização por status
 - [x] Lembretes e reengajamento (cron)
-- [x] Escalonamento para humano + alerta Slack
+- [x] Escalonamento para humano + alerta operacional por webhook
 - [x] Auditoria completa em `eventos`, `pagamentos`, `entregas`
 
 ## Features futuras (skeleton pronto)

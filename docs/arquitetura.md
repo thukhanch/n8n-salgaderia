@@ -55,13 +55,13 @@
 |-----------------|---------------------------------------|-------------------------------------------|
 | WhatsApp        | **Baileys** (Node.js) self-hosted     | Grátis, sem taxa, controle total          |
 | Orquestração    | n8n self-hosted                       | Workflows visuais                         |
-| LLM             | OpenAI gpt-4o-mini (JSON mode)        | Barato, saída estruturada                 |
+| LLM             | OpenAI-compatible API (JSON mode)     | Flexível: OpenAI ou gateway local         |
 | Estado/Dados    | **PostgreSQL 15**                     | JSONB, triggers, views                    |
 | Pagamento       | **Mercado Pago** (Pix dinâmico)       | API madura, taxa baixa, IPN confiável     |
 | Entrega         | **Lalamove / Uber Direct / Loggi**    | APIs públicas, tracking automático        |
 | Cozinha física  | **Impressora térmica** (ESC/POS)      | Workflow padrão food service              |
 | Agenda          | **Google Calendar** API               | Dona já usa no celular                    |
-| Observabilidade | Slack + tabelas `eventos`/`pagamentos`| Alertas + auditoria                       |
+| Observabilidade | Webhook operacional + tabelas `eventos`/`pagamentos` | Alertas + auditoria |
 
 ## 3. Serviços Docker
 

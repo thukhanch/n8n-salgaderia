@@ -1,4 +1,7 @@
 .env
+pg-data/
+n8n-data/
+baileys-auth/
 bridge-runtime/.sessions/
 bridge-runtime/node_modules/
 bridge-runtime/dist/

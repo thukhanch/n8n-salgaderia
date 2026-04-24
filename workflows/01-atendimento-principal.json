@@ -405,7 +405,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "Bearer cozinha-token-pendente"
+              "value": "=Bearer {{ $vars.COZINHA_TOKEN }}"
             },
             {
               "name": "Content-Type",
@@ -522,19 +522,23 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://127.0.0.1:3000/api/whatsapp/sessions/{{ $('Normalize Input (Baileys Bridge)').item.json.session_id }}/send",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Content-Type",
               "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"
             }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: $('Normalize Input (Baileys Bridge)').item.json.telefone, text: (typeof $('Parse AI JSON').item.json.resposta_cliente === 'string' ? $('Parse AI JSON').item.json.resposta_cliente : ($('Parse AI JSON').item.json.resposta_cliente?.mensagem || $('Parse AI JSON').item.json.mensagem || $('Parse AI JSON').item.json.resposta || JSON.stringify($('Parse AI JSON').item.json.resposta_cliente))) }) }}",
+        "jsonBody": "={{ JSON.stringify({ number: $('Normalize Input (Baileys Bridge)').item.json.telefone, text: (typeof $('Parse AI JSON').item.json.resposta_cliente === 'string' ? $('Parse AI JSON').item.json.resposta_cliente : ($('Parse AI JSON').item.json.resposta_cliente?.mensagem || $('Parse AI JSON').item.json.mensagem || $('Parse AI JSON').item.json.resposta || JSON.stringify($('Parse AI JSON').item.json.resposta_cliente))) }) }}",
         "options": {
           "timeout": 10000
         }
@@ -641,7 +645,7 @@
     }
   ],
   "connections": {
-    "Webhook Evolution API": {
+    "Webhook Baileys": {
       "main": [
         [
           {
@@ -656,18 +660,18 @@
       "main": [
         [
           {
-            "node": "Guard (ignorar fromMe/vazio)",
+            "node": "Guard",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Guard (ignorar fromMe/vazio)": {
+    "Guard": {
       "main": [
         [
           {
-            "node": "Upsert Cliente + Get Estado",
+            "node": "Upsert Cliente",
             "type": "main",
             "index": 0
           }
@@ -675,7 +679,7 @@
         []
       ]
     },
-    "Upsert Cliente + Get Estado": {
+    "Upsert Cliente": {
       "main": [
         [
           {
@@ -690,14 +694,14 @@
       "main": [
         [
           {
-            "node": "Get Histórico (12 últimas)",
+            "node": "Get Histórico",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Get Histórico (12 últimas)": {
+    "Get Histórico": {
       "main": [
         [
           {

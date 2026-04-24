@@ -46,7 +46,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-image",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
         "sendHeaders": true,
         "headerParameters": {"parameters":[
           {"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
@@ -54,7 +54,7 @@
         ]},
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ number: $('When Called by Workflow').item.json.pedido.telefone, imageBase64: $('MP: Create Pix Payment').item.json.point_of_interaction?.transaction_data?.qr_code_base64, caption: 'QR Code Pix - R$ ' + Number($('When Called by Workflow').item.json.pedido.valor_total).toFixed(2) + ' (Pedido #' + $('When Called by Workflow').item.json.pedido.codigo + ')' }) }}"
+        "jsonBody": "={{ JSON.stringify({ number: $('When Called by Workflow').item.json.pedido.telefone, text: 'Pedido #' + $('When Called by Workflow').item.json.pedido.codigo + ': vou te mandar o Pix copia-e-cola na próxima mensagem para pagamento.' }) }}"
       },
       "id": "node-send-qr",
       "name": "Enviar QR Code",

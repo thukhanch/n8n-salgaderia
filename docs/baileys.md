@@ -36,6 +36,11 @@ Header: `Authorization: Bearer ${SERVICE_TOKEN}`.
 - `POST /send-location` — `{ number, lat, lng, name?, address? }`
 - `GET  /health` — `{ ok, connected }`
 
+Padrão recomendado para os workflows do produto:
+- usar `BAILEYS_HOST` + `BAILEYS_SERVICE_TOKEN`
+- nunca hardcodar `127.0.0.1`, id de sessão ou token no JSON dos workflows
+- tratar o service como contrato HTTP estável, independente do ambiente
+
 Todos exigem `Authorization: Bearer ${SERVICE_TOKEN}`.
 
 ## Primeira execução
