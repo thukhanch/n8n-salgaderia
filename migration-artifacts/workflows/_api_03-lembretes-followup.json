@@ -1,0 +1,330 @@
+{
+  "name": "Salgaderia - 03 Lembretes e Follow-up (cron)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "node-cron-10min",
+      "name": "Cron 10min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "node-cron-1h",
+      "name": "Cron 1h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT codigo, telefone, nome_cliente FROM pedidos WHERE status = 'PRONTO' AND tipo_entrega = 'retirada' AND atualizado_em < NOW() - INTERVAL '20 minutes' AND atualizado_em > NOW() - INTERVAL '2 hours' AND NOT EXISTS (SELECT 1 FROM eventos e WHERE e.pedido_id = pedidos.id AND e.tipo = 'LEMBRETE_RETIRADA_ENVIADO');"
+      },
+      "id": "node-q-retirada",
+      "name": "Query: PRONTOS não retirados",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -980,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT telefone, nome, estado_atual FROM vw_clientes_inativos_24h LIMIT 50;"
+      },
+      "id": "node-q-inativos",
+      "name": "Query: Clientes Inativos 24h",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -980,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(i => ({ json: { telefone: i.json.telefone, texto: `Oi ${i.json.nome_cliente || ''}! Seu pedido #${i.json.codigo} tá te esperando aqui na loja 🥟 Consegue vir buscar?`, pedido_id: i.json.id || null, tipo_evento: 'LEMBRETE_RETIRADA_ENVIADO' } }));"
+      },
+      "id": "node-build-lembrete",
+      "name": "Montar Lembrete Retirada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const msgs = [\n  'Oi! Aqui é a Dona Salgada 🥟 Vi que você começou um pedido e parou no meio. Posso te ajudar a finalizar?',\n  'Oi! Ainda quer fechar seu pedido de salgados? É só me dizer \"oi\" que a gente retoma de onde parou 😊'\n];\nreturn $input.all().map(i => ({ json: { telefone: i.json.telefone, texto: msgs[Math.floor(Math.random()*msgs.length)], tipo_evento: 'REENGAJAMENTO_ENVIADO' } }));"
+      },
+      "id": "node-build-reeng",
+      "name": "Montar Reengajamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $vars.EVOLUTION_HOST }}/message/sendText/{{ $vars.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.telefone, text: $json.texto }) }}",
+        "options": {
+          "timeout": 10000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1500
+            }
+          }
+        }
+      },
+      "id": "node-send-lembrete",
+      "name": "Enviar Lembrete WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -540,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $vars.EVOLUTION_HOST }}/message/sendText/{{ $vars.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.telefone, text: $json.texto }) }}",
+        "options": {
+          "timeout": 10000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1500
+            }
+          }
+        }
+      },
+      "id": "node-send-reeng",
+      "name": "Enviar Reengajamento WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -540,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO eventos (telefone, tipo, payload) VALUES ($1, $2, $3::jsonb);",
+        "options": {
+          "queryReplacement": "={{ $json.telefone }},={{ $json.tipo_evento }},={{ JSON.stringify({ texto: $json.texto }) }}"
+        }
+      },
+      "id": "node-log-lembrete",
+      "name": "Log Evento Lembrete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -320,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO eventos (telefone, tipo, payload) VALUES ($1, $2, $3::jsonb); UPDATE clientes SET ultima_msg_em = NOW() WHERE telefone = $1;",
+        "options": {
+          "queryReplacement": "={{ $json.telefone }},={{ $json.tipo_evento }},={{ JSON.stringify({ texto: $json.texto }) }}"
+        }
+      },
+      "id": "node-log-reeng",
+      "name": "Log Evento Reengajamento",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -320,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron 10min": {
+      "main": [
+        [
+          {
+            "node": "Query: PRONTOS não retirados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query: PRONTOS não retirados": {
+      "main": [
+        [
+          {
+            "node": "Montar Lembrete Retirada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Lembrete Retirada": {
+      "main": [
+        [
+          {
+            "node": "Enviar Lembrete WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Lembrete WA": {
+      "main": [
+        [
+          {
+            "node": "Log Evento Lembrete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cron 1h": {
+      "main": [
+        [
+          {
+            "node": "Query: Clientes Inativos 24h",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query: Clientes Inativos 24h": {
+      "main": [
+        [
+          {
+            "node": "Montar Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Reengajamento": {
+      "main": [
+        [
+          {
+            "node": "Enviar Reengajamento WA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Reengajamento WA": {
+      "main": [
+        [
+          {
+            "node": "Log Evento Reengajamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {}
+}

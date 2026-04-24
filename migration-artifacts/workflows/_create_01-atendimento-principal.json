@@ -1,0 +1,910 @@
+{
+  "name": "Salgaderia - 01 Atendimento Principal (WhatsApp)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "salgaderia/whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook-in",
+      "name": "Webhook Evolution API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1640,
+        240
+      ],
+      "webhookId": "salgaderia-whatsapp"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1",
+              "name": "telefone",
+              "value": "={{ ($json.body?.data?.key?.remoteJid || $json.data?.key?.remoteJid || '').replace('@s.whatsapp.net','').replace('@c.us','') }}",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "nome_wa",
+              "value": "={{ $json.body?.data?.pushName || $json.data?.pushName || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "mensagem",
+              "value": "={{ $json.body?.data?.message?.conversation || $json.body?.data?.message?.extendedTextMessage?.text || $json.data?.message?.conversation || $json.data?.message?.extendedTextMessage?.text || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "4",
+              "name": "tipo_msg",
+              "value": "={{ $json.body?.data?.messageType || $json.data?.messageType || 'text' }}",
+              "type": "string"
+            },
+            {
+              "id": "5",
+              "name": "from_me",
+              "value": "={{ $json.body?.data?.key?.fromMe || $json.data?.key?.fromMe || false }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-normalize",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1420,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.from_me }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.telefone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-guard",
+      "name": "Guard (ignorar fromMe/vazio)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO clientes (telefone, nome) VALUES ($1, NULLIF($2,'')) ON CONFLICT (telefone) DO UPDATE SET ultima_msg_em = NOW(), nome = COALESCE(clientes.nome, EXCLUDED.nome) RETURNING telefone, nome, endereco, estado_atual, contexto;",
+        "options": {
+          "queryReplacement": "={{ $json.telefone }},={{ $json.nome_wa }}"
+        }
+      },
+      "id": "node-upsert-cliente",
+      "name": "Upsert Cliente + Get Estado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -980,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversas (telefone, sender, mensagem) VALUES ($1, 'cliente', $2);",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input').item.json.telefone }},={{ $('Normalize Input').item.json.mensagem }}"
+        }
+      },
+      "id": "node-log-msg-in",
+      "name": "Log Msg Cliente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -760,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sender, mensagem, criado_em FROM conversas WHERE telefone = $1 ORDER BY criado_em DESC LIMIT 12;",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input').item.json.telefone }}"
+        }
+      },
+      "id": "node-historico",
+      "name": "Get Histórico (12 últimas)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -540,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Constrói o payload de contexto que vai ao AI Agent\nconst cliente   = $('Upsert Cliente + Get Estado').first().json;\nconst historico = $('Get Histórico (12 últimas)').all().map(i => ({ sender: i.json.sender, msg: i.json.mensagem })).reverse();\nconst msg       = $('Normalize Input').first().json.mensagem;\n\nreturn [{\n  json: {\n    contexto: {\n      estado_atual:  cliente.estado_atual,\n      cliente: {\n        nome:     cliente.nome,\n        telefone: cliente.telefone,\n        endereco: cliente.endereco\n      },\n      carrinho:        cliente.contexto?.carrinho        || [],\n      dados_parciais:  cliente.contexto?.dados_parciais  || {},\n      historico,\n      mensagem_atual:  msg\n    }\n  }\n}];"
+      },
+      "id": "node-build-context",
+      "name": "Build AI Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Contexto:\n{{ JSON.stringify($json.contexto, null, 2) }}\n\nResponda em JSON conforme o schema do system message.",
+        "options": {
+          "systemMessage": "={{ $vars.PROMPT_DONA_SALGADA }}"
+        }
+      },
+      "id": "node-ai-agent",
+      "name": "AI Agent (Dona Salgada)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        -100,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0.3,
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "node-llm",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -100,
+        380
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_KEY",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Faz parse do JSON retornado pela IA com fallback seguro.\nlet raw = $json.output ?? $json.text ?? '';\nif (typeof raw === 'object') raw = JSON.stringify(raw);\nlet parsed;\ntry {\n  const cleaned = raw.replace(/```json|```/g,'').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parsed = {\n    resposta_cliente: 'Desculpa, tive um errinho aqui. Pode repetir? 🙏',\n    novo_estado: $('Upsert Cliente + Get Estado').first().json.estado_atual,\n    carrinho: $('Upsert Cliente + Get Estado').first().json.contexto?.carrinho || [],\n    dados_coletados: {},\n    acao: 'NENHUMA',\n    intencao: 'erro_parse'\n  };\n}\nreturn [{ json: parsed }];"
+      },
+      "id": "node-parse-ai",
+      "name": "Parse AI JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE clientes SET estado_atual = $2, contexto = $3::jsonb, ultima_msg_em = NOW(), nome = COALESCE(NULLIF($4,''), nome) WHERE telefone = $1 RETURNING telefone;",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input').item.json.telefone }},={{ $json.novo_estado }},={{ JSON.stringify({ carrinho: $json.carrinho, dados_parciais: $json.dados_coletados }) }},={{ $json.dados_coletados?.nome || '' }}"
+        }
+      },
+      "id": "node-update-estado",
+      "name": "Update Estado Cliente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "s1",
+                    "leftValue": "={{ $('Parse AI JSON').item.json.acao }}",
+                    "rightValue": "CRIAR_PEDIDO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CRIAR_PEDIDO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "s2",
+                    "leftValue": "={{ $('Parse AI JSON').item.json.acao }}",
+                    "rightValue": "ESCALAR_HUMANO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ESCALAR_HUMANO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "s3",
+                    "leftValue": "={{ $('Parse AI JSON').item.json.acao }}",
+                    "rightValue": "CANCELAR",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CANCELAR"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "node-switch-acao",
+      "name": "Switch por acao",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        660,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH novo AS (\n  INSERT INTO pedidos (\n    telefone, nome_cliente, itens, quantidade_total, valor_total,\n    tipo_entrega, endereco, forma_pagamento, status, observacao\n  ) VALUES (\n    $1, $2, $3::jsonb, $4, $5, $6, NULLIF($7,''), $8,\n    CASE WHEN $8='pix' THEN 'NOVO' ELSE 'PAGO' END,\n    NULLIF($9,'')\n  ) RETURNING *\n)\nUPDATE clientes SET estado_atual='PEDIDO_CONFIRMADO', contexto='{}'::jsonb WHERE telefone=$1\nRETURNING (SELECT row_to_json(novo) FROM novo) AS pedido;",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input').item.json.telefone }},={{ $('Parse AI JSON').item.json.dados_coletados.nome }},={{ JSON.stringify($('Parse AI JSON').item.json.carrinho) }},={{ ($('Parse AI JSON').item.json.carrinho || []).reduce((s,i)=>s+(i.qtd||0),0) }},={{ ($('Parse AI JSON').item.json.carrinho || []).reduce((s,i)=>s+((i.qtd||0)*(i.preco_unit||0)),0) + ($('Parse AI JSON').item.json.dados_coletados.tipo_entrega==='entrega'?5:0) }},={{ $('Parse AI JSON').item.json.dados_coletados.tipo_entrega }},={{ $('Parse AI JSON').item.json.dados_coletados.endereco || '' }},={{ $('Parse AI JSON').item.json.dados_coletados.forma_pagamento }},={{ $('Parse AI JSON').item.json.dados_coletados.observacao || '' }}"
+        }
+      },
+      "id": "node-criar-pedido",
+      "name": "Criar Pedido (DB)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.WEBHOOK_COZINHA_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.COZINHA_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.pedido) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "node-cozinha",
+      "name": "Enviar p/ Cozinha (Webhook)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO eventos (telefone, pedido_id, tipo, payload) VALUES ($1, ($2::json->>'id')::uuid, 'PEDIDO_CRIADO', $2::jsonb);",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input').item.json.telefone }},={{ JSON.stringify($('Criar Pedido (DB)').item.json.pedido) }}"
+        }
+      },
+      "id": "node-evento-criado",
+      "name": "Log Evento Pedido",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1320,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE clientes SET estado_atual='HUMANO' WHERE telefone=$1; INSERT INTO eventos (telefone, tipo, payload) VALUES ($1,'FALLBACK_HUMANO', $2::jsonb);",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input').item.json.telefone }},={{ JSON.stringify({mensagem: $('Normalize Input').item.json.mensagem, intencao: $('Parse AI JSON').item.json.intencao}) }}"
+        }
+      },
+      "id": "node-flag-humano",
+      "name": "Flag Atendimento Humano",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SLACK_WEBHOOK_OPERACAO }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({text: '⚠️ Cliente precisa de humano: ' + $('Normalize Input').item.json.telefone + ' — ' + $('Normalize Input').item.json.mensagem}) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "node-alerta-slack",
+      "name": "Alertar Operação (Slack)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE clientes SET estado_atual='FINALIZADO', contexto='{}'::jsonb WHERE telefone=$1;",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input').item.json.telefone }}"
+        }
+      },
+      "id": "node-cancelar",
+      "name": "Resetar Cliente (Cancelar)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $vars.EVOLUTION_HOST }}/message/sendText/{{ $vars.EVOLUTION_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $vars.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $('Normalize Input').item.json.telefone, text: $('Parse AI JSON').item.json.resposta_cliente }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "node-send-wa",
+      "name": "Enviar WhatsApp (Evolution)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversas (telefone, sender, mensagem, intencao) VALUES ($1, 'bot', $2, $3);",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input').item.json.telefone }},={{ $('Parse AI JSON').item.json.resposta_cliente }},={{ $('Parse AI JSON').item.json.intencao }}"
+        }
+      },
+      "id": "node-log-msg-out",
+      "name": "Log Msg Bot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1760,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\": true}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "node-respond",
+      "name": "Responder Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "node-error-trigger",
+      "name": "Error Trigger (do próprio fluxo)",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1640,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO eventos (telefone, tipo, payload) VALUES (NULL, 'ERRO_WORKFLOW', $1::jsonb);",
+        "options": {
+          "queryReplacement": "={{ JSON.stringify($json) }}"
+        }
+      },
+      "id": "node-log-error",
+      "name": "Log Erro",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1420,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:9/slack-disabled",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({text: '🚨 Erro no fluxo Salgaderia: ' + ($json.execution?.error?.message || 'desconhecido')}) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "node-error-slack",
+      "name": "Alerta Erro Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1200,
+        600
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Evolution API": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Guard (ignorar fromMe/vazio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard (ignorar fromMe/vazio)": {
+      "main": [
+        [
+          {
+            "node": "Upsert Cliente + Get Estado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Upsert Cliente + Get Estado": {
+      "main": [
+        [
+          {
+            "node": "Log Msg Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Msg Cliente": {
+      "main": [
+        [
+          {
+            "node": "Get Histórico (12 últimas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Histórico (12 últimas)": {
+      "main": [
+        [
+          {
+            "node": "Build AI Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Context": {
+      "main": [
+        [
+          {
+            "node": "AI Agent (Dona Salgada)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (Dona Salgada)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent (Dona Salgada)": {
+      "main": [
+        [
+          {
+            "node": "Parse AI JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI JSON": {
+      "main": [
+        [
+          {
+            "node": "Update Estado Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Estado Cliente": {
+      "main": [
+        [
+          {
+            "node": "Switch por acao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch por acao": {
+      "main": [
+        [
+          {
+            "node": "Criar Pedido (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag Atendimento Humano",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resetar Cliente (Cancelar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar WhatsApp (Evolution)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar Pedido (DB)": {
+      "main": [
+        [
+          {
+            "node": "Enviar p/ Cozinha (Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar p/ Cozinha (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Log Evento Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Evento Pedido": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp (Evolution)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag Atendimento Humano": {
+      "main": [
+        [
+          {
+            "node": "Alertar Operação (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alertar Operação (Slack)": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp (Evolution)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resetar Cliente (Cancelar)": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp (Evolution)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar WhatsApp (Evolution)": {
+      "main": [
+        [
+          {
+            "node": "Log Msg Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Msg Bot": {
+      "main": [
+        [
+          {
+            "node": "Responder Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger (do próprio fluxo)": {
+      "main": [
+        [
+          {
+            "node": "Log Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Erro": {
+      "main": [
+        [
+          {
+            "node": "Alerta Erro Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": ""
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "salgaderia"
+    },
+    {
+      "name": "whatsapp"
+    },
+    {
+      "name": "production"
+    }
+  ]
+}
