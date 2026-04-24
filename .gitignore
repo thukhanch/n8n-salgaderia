@@ -1,0 +1,5 @@
+.env
+bridge-runtime/.sessions/
+bridge-runtime/node_modules/
+bridge-runtime/dist/
+node_modules/

@@ -12,15 +12,29 @@
       "name": "Webhook Cozinha",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-1200, 240],
+      "position": [
+        -1200,
+        240
+      ],
       "webhookId": "salgaderia-cozinha-status"
     },
     {
       "parameters": {
         "conditions": {
-          "options": {"caseSensitive": true, "typeValidation": "strict"},
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
           "conditions": [
-            {"id":"auth","leftValue":"={{ $json.headers.authorization }}","rightValue":"=Bearer {{ $vars.COZINHA_TOKEN }}","operator":{"type":"string","operation":"equals"}}
+            {
+              "id": "auth",
+              "leftValue": "={{ $json.headers.authorization }}",
+              "rightValue": "Bearer cozinha-token-pendente",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
           ],
           "combinator": "and"
         }
@@ -29,14 +43,33 @@
       "name": "Auth",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [-980, 240]
+      "position": [
+        -980,
+        240
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            {"id":"1","name":"codigo","value":"={{ $json.body.codigo }}","type":"number"},
-            {"id":"2","name":"novo_status","value":"={{ $json.body.status }}","type":"string"}
+            {
+              "id": "1",
+              "name": "pedido_id",
+              "value": "={{ $json.body.pedido_id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "codigo",
+              "value": "={{ $json.body.codigo || null }}",
+              "type": "number"
+            },
+            {
+              "id": "3",
+              "name": "novo_status",
+              "value": "={{ ($json.body.novo_status || $json.body.status || '').toString().trim() }}",
+              "type": "string"
+            }
           ]
         }
       },
@@ -44,38 +77,136 @@
       "name": "Set Status",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [-760, 180]
+      "position": [
+        -760,
+        180
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE pedidos SET status=$2 WHERE codigo=$1 RETURNING *;",
-        "options": {"queryReplacement":"={{ $json.codigo }},={{ $json.novo_status }}"}
+        "query": "UPDATE pedidos SET status = CASE WHEN UPPER($2) IN ('NOVO','RECEBIDO','CRIADO') THEN status WHEN UPPER($2) IN ('EM_PREPARO','PREPARANDO') THEN 'EM_PREPARO' WHEN UPPER($2) = 'PRONTO' THEN 'PRONTO' WHEN UPPER($2) IN ('SAIU_ENTREGA','SAIU PARA ENTREGA') THEN 'SAIU_ENTREGA' WHEN UPPER($2) = 'ENTREGUE' THEN 'ENTREGUE' WHEN UPPER($2) = 'CANCELADO' THEN 'CANCELADO' ELSE status END WHERE id = NULLIF($1,'')::uuid RETURNING id, codigo, telefone, nome_cliente, tipo_entrega, status, valor_total;",
+        "options": {
+          "queryReplacement": "={{ $json.pedido_id || \"\" }},={{ $json.novo_status }}"
+        }
       },
       "id": "node-upd",
       "name": "Update Pedido",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [-540, 180],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        -540,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
       "parameters": {
         "rules": {
           "values": [
-            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"s1","leftValue":"={{ $json.status }}","rightValue":"EM_PREPARO","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"EM_PREPARO"},
-            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"s2","leftValue":"={{ $json.status }}","rightValue":"PRONTO","operator":{"type":"string","operation":"equals"}},{"id":"s2b","leftValue":"={{ $json.tipo_entrega }}","rightValue":"entrega","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"PRONTO_ENTREGA"},
-            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"s3","leftValue":"={{ $json.status }}","rightValue":"PRONTO","operator":{"type":"string","operation":"equals"}},{"id":"s3b","leftValue":"={{ $json.tipo_entrega }}","rightValue":"retirada","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"PRONTO_RETIRADA"},
-            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"s4","leftValue":"={{ $json.status }}","rightValue":"ENTREGUE","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"ENTREGUE"}
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "id": "s1",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "EM_PREPARO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "EM_PREPARO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "id": "s2",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "PRONTO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "PRONTO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "id": "s3",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "SAIU_ENTREGA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SAIU_ENTREGA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "id": "s4",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "ENTREGUE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ENTREGUE"
+            }
           ]
         },
-        "options": {"fallbackOutput": "none"}
+        "options": {
+          "fallbackOutput": "none"
+        }
       },
       "id": "node-switch",
       "name": "Switch Status",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [-320, 180]
+      "position": [
+        -320,
+        180
+      ]
     },
     {
       "parameters": {
@@ -83,21 +214,43 @@
         "workflowInputs": {"value": "={{ { pedido: $json } }}"},
         "options": {"waitForSubWorkflow": true}
       },
-      "id": "node-call-motoboy",
-      "name": "Execute: Motoboy",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [-100, 0]
+      "id": "node-msg-status",
+      "name": "Compor Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        180
+      ]
     },
     {
       "parameters": {
-        "jsCode": "const p = $('Update Pedido').first().json;\nconst status = p.status;\nconst tipo = p.tipo_entrega;\nconst map = {\n  EM_PREPARO:     `🔥 Seu pedido #${p.codigo} tá na fritura! Fica pronto em ~20 min.`,\n  PRONTO_RETIRADA: `🥟 Pedido #${p.codigo} PRONTO! Pode vir buscar.`,\n  PRONTO_ENTREGA:  `✅ Pedido #${p.codigo} pronto! Chamando o motoboy, já te mando o link do rastreio.`,\n  ENTREGUE:       `🙌 Pedido #${p.codigo} entregue! Obrigada pela preferência.`\n};\nconst key = (status==='PRONTO') ? (tipo==='entrega'?'PRONTO_ENTREGA':'PRONTO_RETIRADA') : status;\nreturn [{ json: { telefone: p.telefone, texto: map[key] || `Pedido #${p.codigo}: ${status}` } }];"
+        "method": "POST",
+        "url": "=http://127.0.0.1:3000/api/whatsapp/sessions/a152e231-fd07-4186-91ab-724b2893c1ba/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.telefone, text: $json.texto }) }}",
+        "options": {
+          "timeout": 10000
+        }
       },
-      "id": "node-msg",
-      "name": "Compor Msg",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [120, 180]
+      "id": "node-send-wa",
+      "name": "Enviar WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        180
+      ]
     },
     {
       "parameters": {
@@ -128,43 +281,173 @@
       "name": "Sync Estado Cliente",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [560, 180],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        340,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
-      "parameters": {"respondWith":"json","responseBody":"={\"ok\":true}","options":{"responseCode":200}},
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\": true}",
+        "options": {
+          "responseCode": 200
+        }
+      },
       "id": "node-ok",
       "name": "OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [780, 180]
+      "position": [
+        560,
+        180
+      ]
     },
     {
-      "parameters": {"respondWith":"json","responseBody":"={\"ok\":false}","options":{"responseCode":401}},
-      "id": "node-401",
-      "name": "401",
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\": false, \"error\":\"unauthorized\"}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "node-unauth",
+      "name": "Responder 401",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [-760, 380]
+      "position": [
+        -760,
+        380
+      ]
     }
   ],
   "connections": {
-    "Webhook Cozinha":    { "main": [[{"node":"Auth","type":"main","index":0}]] },
-    "Auth":               { "main": [ [{"node":"Set Status","type":"main","index":0}], [{"node":"401","type":"main","index":0}] ] },
-    "Set Status":         { "main": [[{"node":"Update Pedido","type":"main","index":0}]] },
-    "Update Pedido":      { "main": [[{"node":"Switch Status","type":"main","index":0}]] },
-    "Switch Status":      { "main": [
-      [{"node":"Compor Msg","type":"main","index":0}],
-      [{"node":"Execute: Motoboy","type":"main","index":0},{"node":"Compor Msg","type":"main","index":0}],
-      [{"node":"Compor Msg","type":"main","index":0}],
-      [{"node":"Compor Msg","type":"main","index":0}]
-    ]},
-    "Execute: Motoboy":   { "main": [[]] },
-    "Compor Msg":         { "main": [[{"node":"Enviar WhatsApp","type":"main","index":0}]] },
-    "Enviar WhatsApp":    { "main": [[{"node":"Sync Estado Cliente","type":"main","index":0}]] },
-    "Sync Estado Cliente":{ "main": [[{"node":"OK","type":"main","index":0}]] }
+    "Webhook Cozinha": {
+      "main": [
+        [
+          {
+            "node": "Auth Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Token": {
+      "main": [
+        [
+          {
+            "node": "Set Status Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Status Input": {
+      "main": [
+        [
+          {
+            "node": "Update Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Pedido": {
+      "main": [
+        [
+          {
+            "node": "Switch Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Status": {
+      "main": [
+        [
+          {
+            "node": "Compor Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compor Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compor Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compor Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compor Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Sincroniza Estado Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sincroniza Estado Cliente": {
+      "main": [
+        [
+          {
+            "node": "Responder OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "active": false,
-  "settings": {"executionOrder":"v1","saveDataErrorExecution":"all"},
-  "tags": [{"name":"salgaderia"},{"name":"cozinha"}]
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {}
 }

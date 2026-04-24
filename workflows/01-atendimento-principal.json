@@ -12,7 +12,10 @@
       "name": "Webhook Baileys",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-1640, 240],
+      "position": [
+        -1640,
+        240
+      ],
       "webhookId": "salgaderia-whatsapp"
     },
     {
@@ -35,29 +38,86 @@
       "parameters": {
         "assignments": {
           "assignments": [
-            {"id":"1","name":"telefone","value":"={{ $json.body.telefone }}","type":"string"},
-            {"id":"2","name":"nome_wa","value":"={{ $json.body.pushName || '' }}","type":"string"},
-            {"id":"3","name":"mensagem","value":"={{ $json.body.text || '' }}","type":"string"},
-            {"id":"4","name":"tipo_msg","value":"={{ $json.body.messageType || 'text' }}","type":"string"},
-            {"id":"5","name":"from_me","value":"={{ $json.body.fromMe || false }}","type":"boolean"},
-            {"id":"6","name":"has_media","value":"={{ $json.body.hasMedia || false }}","type":"boolean"}
+            {
+              "id": "1",
+              "name": "telefone",
+              "type": "string",
+              "value": "={{ (($json.body?.from || $json.from || $json.body?.data?.key?.remoteJid || $json.data?.key?.remoteJid || '') + '').replace('@s.whatsapp.net','').replace('@c.us','') }}"
+            },
+            {
+              "id": "2",
+              "name": "nome_wa",
+              "type": "string",
+              "value": "={{ $json.body?.pushName || $json.pushName || $json.body?.data?.pushName || $json.data?.pushName || '' }}"
+            },
+            {
+              "id": "3",
+              "name": "mensagem",
+              "type": "string",
+              "value": "={{ $json.body?.text || $json.text || $json.body?.message?.conversation || $json.message?.conversation || $json.body?.message?.extendedTextMessage?.text || $json.message?.extendedTextMessage?.text || $json.body?.data?.message?.conversation || $json.data?.message?.conversation || $json.body?.data?.message?.extendedTextMessage?.text || $json.data?.message?.extendedTextMessage?.text || '' }}"
+            },
+            {
+              "id": "4",
+              "name": "tipo_msg",
+              "type": "string",
+              "value": "={{ ($json.body?.text || $json.text || $json.body?.message?.conversation || $json.message?.conversation || $json.body?.message?.extendedTextMessage?.text || $json.message?.extendedTextMessage?.text) ? 'text' : ($json.body?.data?.messageType || $json.data?.messageType || 'unknown') }}"
+            },
+            {
+              "id": "5",
+              "name": "from_me",
+              "type": "boolean",
+              "value": "={{ $json.body?.fromMe || $json.fromMe || $json.body?.data?.key?.fromMe || $json.data?.key?.fromMe || false }}"
+            },
+            {
+              "id": "6",
+              "name": "session_id",
+              "type": "string",
+              "value": "={{ $json.body?.sessionId || $json.sessionId || '' }}"
+            },
+            {
+              "id": "7",
+              "name": "message_id",
+              "type": "string",
+              "value": "={{ $json.body?.messageId || $json.messageId || $json.body?.data?.key?.id || $json.data?.key?.id || '' }}"
+            }
           ]
         }
       },
       "id": "node-normalize",
-      "name": "Normalize Input",
+      "name": "Normalize Input (Baileys Bridge)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [-1200, 180]
+      "position": [
+        -1420,
+        240
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": {"caseSensitive": true, "typeValidation": "strict"},
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
           "conditions": [
-            {"id":"c1","leftValue":"={{ $json.from_me }}","rightValue":true,"operator":{"type":"boolean","operation":"false"}},
-            {"id":"c2","leftValue":"={{ $json.telefone }}","rightValue":"","operator":{"type":"string","operation":"notEmpty"}},
-            {"id":"c3","leftValue":"={{ $json.mensagem }}","rightValue":"","operator":{"type":"string","operation":"notEmpty"}}
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.from_me }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.telefone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
           ],
           "combinator": "and"
         }
@@ -66,7 +126,10 @@
       "name": "Guard",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [-980, 180]
+      "position": [
+        -1200,
+        240
+      ]
     },
     {
       "parameters": {
@@ -78,257 +141,462 @@
       "name": "Upsert Cliente",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [-760, 120],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        -980,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "executeQuery",
         "query": "INSERT INTO conversas (telefone, sender, mensagem) VALUES ($1, 'cliente', $2);",
-        "options": {"queryReplacement":"={{ $('Normalize Input').item.json.telefone }},={{ $('Normalize Input').item.json.mensagem }}"}
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input (Baileys Bridge)').item.json.telefone }},={{ $('Normalize Input (Baileys Bridge)').item.json.mensagem }}"
+        }
       },
       "id": "node-log-in",
       "name": "Log Msg Cliente",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [-540, 120],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        -760,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "executeQuery",
         "query": "SELECT sender, mensagem, criado_em FROM conversas WHERE telefone = $1 ORDER BY criado_em DESC LIMIT 12;",
-        "options": {"queryReplacement":"={{ $('Normalize Input').item.json.telefone }}"}
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input (Baileys Bridge)').item.json.telefone }}"
+        }
       },
       "id": "node-historico",
       "name": "Get Histórico",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [-320, 120],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        -540,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "const cliente = $('Upsert Cliente').first().json;\nconst historico = $('Get Histórico').all().map(i => ({ sender: i.json.sender, msg: i.json.mensagem })).reverse();\nconst msg = $('Normalize Input').first().json.mensagem;\nreturn [{ json: { contexto: {\n  estado_atual: cliente.estado_atual,\n  cliente: { nome: cliente.nome, telefone: cliente.telefone, endereco: cliente.endereco },\n  carrinho: cliente.contexto?.carrinho || [],\n  dados_parciais: cliente.contexto?.dados_parciais || {},\n  historico,\n  mensagem_atual: msg\n}}}];"
+        "jsCode": "// Constrói o payload de contexto que vai ao AI Agent\nconst cliente   = $('Upsert Cliente + Get Estado').first().json;\nconst historico = $('Get Histórico (12 últimas)').all().map(i => ({ sender: i.json.sender, msg: i.json.mensagem })).reverse();\nconst msg       = $('Normalize Input (Baileys Bridge)').first().json.mensagem;\nconst agoraDate = new Date();\nconst diaSemana = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'][agoraDate.getDay()];\nconst data = agoraDate.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });\nconst hora = agoraDate.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false });\n\nreturn [{\n  json: {\n    contexto: {\n      estado_atual:  cliente.estado_atual,\n      agora: {\n        data,\n        hora,\n        dia_semana: diaSemana\n      },\n      cliente: {\n        nome:     cliente.nome,\n        telefone: cliente.telefone,\n        endereco: cliente.endereco\n      },\n      carrinho:        cliente.contexto?.carrinho        || [],\n      dados_parciais:  cliente.contexto?.dados_parciais  || {},\n      historico,\n      mensagem_atual:  msg\n    }\n  }\n}];"
       },
       "id": "node-ctx",
       "name": "Build AI Context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-100, 120]
+      "position": [
+        -320,
+        180
+      ]
     },
     {
       "parameters": {
         "promptType": "define",
         "text": "=Contexto:\n{{ JSON.stringify($json.contexto, null, 2) }}\n\nResponda em JSON conforme o schema do system message.",
-        "options": {"systemMessage": "={{ $vars.PROMPT_DONA_SALGADA }}"}
+        "options": {
+          "systemMessage": "# Dona Salgada — Atendente virtual da salgaderia\n\nVocê é a Dona Salgada, atendente virtual de uma salgaderia focada em pedidos para retirada.\nResponda sempre em português do Brasil, com objetividade, simpatia e clareza.\n\nRegras fixas:\n- venda apenas coxinha e bolinha de queijo\n- quantidade apenas em múltiplos de 25\n- atendimento apenas para retirada no balcão\n- horário de funcionamento: 07:00 às 23:00\n- pedido precisa de pelo menos 1 hora de antecedência\n- sempre conduza a conversa até fechar: item, quantidade, data, horário e nome\n- se o cliente pedir algo fora do cardápio, explique e redirecione\n- se faltar dado, peça apenas o próximo dado necessário\n- quando tiver tudo, responda em JSON estruturado coerente com o fluxo\n- nunca invente confirmação de pedido sem todos os dados\n\nSaída:\nResponda em JSON compatível com o fluxo do n8n, sem texto fora do JSON."
+        }
       },
       "id": "node-ai",
       "name": "AI Agent",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
-      "position": [120, 120]
+      "position": [
+        -100,
+        180
+      ]
     },
     {
       "parameters": {
-        "model": "gpt-4o-mini",
-        "options": {"temperature": 0.3, "responseFormat": "json_object"}
+        "model": {
+          "mode": "list",
+          "value": "meucombo"
+        },
+        "options": {
+          "temperature": 0.3,
+          "responseFormat": "json_object"
+        }
       },
       "id": "node-llm",
       "name": "OpenAI Chat Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.2,
-      "position": [120, 320],
-      "credentials": {"openAiApi": {"id": "OPENAI_KEY", "name": "OpenAI"}}
+      "position": [
+        -100,
+        380
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "AP7VbMgfX7tweeUf",
+          "name": "OpenAI Local 9router"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "let raw = $json.output ?? $json.text ?? '';\nif (typeof raw === 'object') raw = JSON.stringify(raw);\nlet p;\ntry { p = JSON.parse(raw.replace(/```json|```/g,'').trim()); }\ncatch { p = { resposta_cliente:'Desculpa, tive um errinho. Pode repetir?', novo_estado:$('Upsert Cliente').first().json.estado_atual, carrinho:$('Upsert Cliente').first().json.contexto?.carrinho||[], dados_coletados:{}, acao:'NENHUMA', intencao:'erro_parse' }; }\nreturn [{ json: p }];"
+        "jsCode": "// Normaliza a saída da IA para o formato real esperado pelo workflow.\nlet raw = $json.output ?? $json.text ?? $json.response ?? '';\nif (typeof raw === 'object') raw = JSON.stringify(raw);\nlet parsed;\ntry {\n  const cleaned = String(raw).replace(/```json|```/g,'').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  parsed = {};\n}\n\nconst cliente = $('Upsert Cliente + Get Estado').first().json;\nconst dados = parsed.dados_coletados || parsed.dados_parciais || parsed.dados || {};\nconst pedido = parsed.pedido || {};\n\nlet itens = Array.isArray(parsed.carrinho)\n  ? parsed.carrinho\n  : (Array.isArray(pedido.itens) ? pedido.itens.map(i => ({\n      item: i.item || i.nome || i.produto || '',\n      qtd: Number(i.qtd || i.quantidade || 0),\n      preco_unit: Number(i.preco_unit || i.preco || 0)\n    })) : []);\n\nif (!itens.length && (pedido.item || dados.item)) {\n  itens = [{\n    item: pedido.item || dados.item || '',\n    qtd: Number(pedido.quantidade || dados.quantidade || 0),\n    preco_unit: Number(pedido.preco_unit || dados.preco_unit || 0)\n  }];\n}\n\nconst acaoBruta = String(parsed.acao || parsed.action || '').toUpperCase().trim();\nconst temNome = !!(dados.nome || pedido.nome || pedido.nome_cliente || cliente.nome);\nconst temItens = Array.isArray(itens) && itens.some(i => (i?.item || '').trim() && Number(i?.qtd || 0) > 0);\nconst temData = !!(dados.data || pedido.data || pedido.retirada?.data);\nconst temHorario = !!(dados.horario || pedido.horario || pedido.retirada?.horario);\nconst pedidoCompletoInferido = temNome && temItens && temData && temHorario;\nlet acao = 'NENHUMA';\nif (acaoBruta === 'CONFIRMAR_PEDIDO' || acaoBruta === 'CRIAR_PEDIDO') acao = 'CRIAR_PEDIDO';\nelse if (acaoBruta === 'ESCALAR_HUMANO' || acaoBruta === 'HUMANO') acao = 'ESCALAR_HUMANO';\nelse if (acaoBruta === 'CANCELAR' || acaoBruta === 'CANCELADO') acao = 'CANCELAR';\nelse if (pedidoCompletoInferido) acao = 'CRIAR_PEDIDO';\n\nconst estadoIA = String(parsed.novo_estado || parsed.estado_atual || '').toUpperCase().trim();\nconst estadosPermitidos = new Set(['INICIO','COLETANDO_PEDIDO','CONFIRMANDO_PEDIDO','AGUARDANDO_ENDERECO','AGUARDANDO_PAGAMENTO','PEDIDO_CONFIRMADO','EM_PREPARO','PRONTO','FINALIZADO','HUMANO']);\nconst mapaEstados = {\n  AGUARDANDO_ITEM: 'COLETANDO_PEDIDO',\n  AGUARDANDO_ITENS: 'COLETANDO_PEDIDO',\n  AGUARDANDO_QTD: 'COLETANDO_PEDIDO',\n  AGUARDANDO_QUANTIDADE: 'COLETANDO_PEDIDO',\n  COLETANDO_ITENS: 'COLETANDO_PEDIDO',\n  AGUARDANDO_NOME: 'COLETANDO_PEDIDO',\n  AGUARDANDO_DATA: 'COLETANDO_PEDIDO',\n  AGUARDANDO_HORARIO: 'COLETANDO_PEDIDO',\n  AGUARDANDO_ENTREGA: 'AGUARDANDO_ENDERECO',\n  AGUARDANDO_ENDEREÇO: 'AGUARDANDO_ENDERECO',\n  AGUARDANDO_PAGTO: 'AGUARDANDO_PAGAMENTO',\n  PAGAMENTO_PENDENTE: 'AGUARDANDO_PAGAMENTO',\n  PEDIDO_FECHADO: 'PEDIDO_CONFIRMADO',\n  CONCLUIDO: 'FINALIZADO',\n  CONCLUÍDO: 'FINALIZADO',\n  PRONTO_PARA_CONFIRMACAO: 'CONFIRMANDO_PEDIDO',\n  DADOS_COMPLETOS: 'CONFIRMANDO_PEDIDO',\n  PEDIDO_COMPLETO: 'CONFIRMANDO_PEDIDO'\n};\nlet novoEstado = mapaEstados[estadoIA] || estadoIA;\nif (!estadosPermitidos.has(novoEstado)) {\n  if (acao === 'CRIAR_PEDIDO') novoEstado = 'CONFIRMANDO_PEDIDO';\n  else if (acao === 'ESCALAR_HUMANO') novoEstado = 'HUMANO';\n  else if (dados.item || itens.length) novoEstado = 'COLETANDO_PEDIDO';\n  else novoEstado = cliente.estado_atual || 'INICIO';\n}\n\nconst resposta = parsed.resposta_cliente || parsed.mensagem || parsed.resposta || 'Desculpa, tive um errinho aqui. Pode repetir? 🙏';\nconst formaPagamento = dados.forma_pagamento || pedido.forma_pagamento || 'dinheiro';\nconst tipoEntrega = dados.tipo_entrega || dados.tipo_atendimento || pedido.tipo_entrega || pedido.tipo_atendimento || (pedido.retirada ? 'retirada' : 'entrega');\n\nconst dados_coletados = {\n  nome: dados.nome || pedido.nome || pedido.nome_cliente || cliente.nome || 'Cliente',\n  item: dados.item || pedido.item || pedido.produto || (itens[0] && itens[0].item) || '',\n  quantidade: Number(dados.quantidade || pedido.quantidade || (itens[0] && itens[0].qtd) || 0),\n  data: dados.data || pedido.data || '',\n  horario: dados.horario || pedido.horario || '',\n  tipo_entrega: tipoEntrega,\n  endereco: dados.endereco || pedido.endereco || (tipoEntrega === 'retirada' ? '' : 'endereco-pendente'),\n  forma_pagamento: formaPagamento,\n  observacao: dados.observacao || pedido.observacao || ''\n};\n\nreturn [{ json: {\n  resposta_cliente: resposta,\n  novo_estado: novoEstado,\n  carrinho: itens,\n  dados_coletados,\n  acao,\n  intencao: parsed.intencao || parsed.intent || acao.toLowerCase(),\n  pedido,\n  estado_ia_original: estadoIA || null\n} }];"
       },
       "id": "node-parse",
       "name": "Parse AI JSON",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 120]
+      "position": [
+        220,
+        180
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE clientes SET estado_atual=$2, contexto=$3::jsonb, ultima_msg_em=NOW(), nome=COALESCE(NULLIF($4,''),nome), endereco=COALESCE(NULLIF($5,''),endereco) WHERE telefone=$1 RETURNING telefone;",
-        "options": {"queryReplacement":"={{ $('Normalize Input').item.json.telefone }},={{ $json.novo_estado }},={{ JSON.stringify({ carrinho:$json.carrinho, dados_parciais:$json.dados_coletados }) }},={{ $json.dados_coletados?.nome || '' }},={{ $json.dados_coletados?.endereco || '' }}"}
+        "query": "UPDATE clientes SET estado_atual = $2, contexto = jsonb_build_object('carrinho', $3::jsonb, 'dados_parciais', $4::jsonb), ultima_msg_em = NOW(), nome = COALESCE(NULLIF($5,''), nome) WHERE telefone = $1 RETURNING telefone;",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input (Baileys Bridge)').item.json.telefone }},={{ $json.novo_estado }},={{ JSON.stringify($json.carrinho || []) }},={{ JSON.stringify($json.dados_coletados || {}) }},={{ $json.dados_coletados?.nome || '' }}"
+        }
       },
       "id": "node-upd-estado",
       "name": "Update Estado Cliente",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [660, 120],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        440,
+        180
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
       "parameters": {
         "rules": {
           "values": [
-            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"s1","leftValue":"={{ $('Parse AI JSON').item.json.acao }}","rightValue":"CRIAR_PEDIDO","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"CRIAR_PEDIDO"},
-            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"s2","leftValue":"={{ $('Parse AI JSON').item.json.acao }}","rightValue":"ESCALAR_HUMANO","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"ESCALAR_HUMANO"},
-            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"s3","leftValue":"={{ $('Parse AI JSON').item.json.acao }}","rightValue":"CANCELAR","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"CANCELAR"}
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "s1",
+                    "leftValue": "={{ $('Parse AI JSON').item.json.acao }}",
+                    "rightValue": "CRIAR_PEDIDO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CRIAR_PEDIDO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "s2",
+                    "leftValue": "={{ $('Parse AI JSON').item.json.acao }}",
+                    "rightValue": "ESCALAR_HUMANO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ESCALAR_HUMANO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "typeValidation": "loose"
+                },
+                "conditions": [
+                  {
+                    "id": "s3",
+                    "leftValue": "={{ $('Parse AI JSON').item.json.acao }}",
+                    "rightValue": "CANCELAR",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CANCELAR"
+            }
           ]
         },
-        "options": {"fallbackOutput": "extra"}
+        "options": {
+          "fallbackOutput": "extra"
+        }
       },
       "id": "node-switch",
       "name": "Switch por acao",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [880, 120]
+      "position": [
+        660,
+        180
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH novo AS (\n  INSERT INTO pedidos (telefone, nome_cliente, itens, quantidade_total, valor_total, taxa_entrega, tipo_entrega, endereco, forma_pagamento, status, observacao)\n  VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, NULLIF($8,''), $9,\n    CASE WHEN $9='pix' THEN 'AGUARDANDO_PAGAMENTO' ELSE 'PAGO' END,\n    NULLIF($10,'')) RETURNING *)\nUPDATE clientes SET estado_atual='PEDIDO_CONFIRMADO', contexto='{}'::jsonb WHERE telefone=$1\nRETURNING (SELECT row_to_json(novo) FROM novo) AS pedido;",
-        "options": {"queryReplacement":"={{ $('Normalize Input').item.json.telefone }},={{ $('Parse AI JSON').item.json.dados_coletados.nome }},={{ JSON.stringify($('Parse AI JSON').item.json.carrinho) }},={{ ($('Parse AI JSON').item.json.carrinho||[]).reduce((s,i)=>s+(i.qtd||0),0) }},={{ ($('Parse AI JSON').item.json.carrinho||[]).reduce((s,i)=>s+((i.qtd||0)*(i.preco_unit||0)),0) + ($('Parse AI JSON').item.json.dados_coletados.tipo_entrega==='entrega'?5:0) }},={{ $('Parse AI JSON').item.json.dados_coletados.tipo_entrega==='entrega'?5:0 }},={{ $('Parse AI JSON').item.json.dados_coletados.tipo_entrega }},={{ $('Parse AI JSON').item.json.dados_coletados.endereco||'' }},={{ $('Parse AI JSON').item.json.dados_coletados.forma_pagamento }},={{ $('Parse AI JSON').item.json.dados_coletados.observacao||'' }}"}
+        "query": "={{ (() => { const tel = $('Normalize Input (Baileys Bridge)').item.json.telefone; const dc = $('Parse AI JSON').item.json.dados_coletados || {}; const carr = $('Parse AI JSON').item.json.carrinho || []; const nome = String(dc.nome || '').replace(/'/g, \"''\"); const itens = JSON.stringify(carr).replace(/'/g, \"''\"); const qtd = carr.reduce((s,i)=>s+(Number(i.qtd||0)),0); const valor = carr.reduce((s,i)=>s+((Number(i.qtd||0))*(Number(i.preco_unit||0))),0) + (dc.tipo_entrega==='entrega'?5:0); const tipo = String(dc.tipo_entrega || 'retirada').replace(/'/g, \"''\"); const end = String(dc.endereco || '').replace(/'/g, \"''\"); const pag = String(dc.forma_pagamento || 'dinheiro').replace(/'/g, \"''\"); const obs = String(dc.observacao || '').replace(/'/g, \"''\"); const status = pag === 'pix' ? 'NOVO' : 'PAGO'; return `WITH novo AS ( INSERT INTO pedidos (telefone, nome_cliente, itens, quantidade_total, valor_total, tipo_entrega, endereco, forma_pagamento, status, observacao) VALUES ('${tel}', '${nome}', '${itens}'::jsonb, ${qtd}, ${valor}, '${tipo}', NULLIF('${end}',''), '${pag}', '${status}', NULLIF('${obs}','')) RETURNING * ) UPDATE clientes SET estado_atual='PEDIDO_CONFIRMADO', contexto='{}'::jsonb WHERE telefone='${tel}' RETURNING (SELECT row_to_json(novo) FROM novo) AS pedido;`; })() }}",
+        "options": {}
       },
       "id": "node-criar-pedido",
       "name": "Criar Pedido (DB)",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1100, -120],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        880,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
       "parameters": {
-        "rules": {
-          "values": [
-            {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"pix","leftValue":"={{ $json.pedido.forma_pagamento }}","rightValue":"pix","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"PIX"}
+        "method": "POST",
+        "url": "http://127.0.0.1:5678/webhook/salgaderia/cozinha-status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer cozinha-token-pendente"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
-        "options": {"fallbackOutput": "extra"}
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ pedido_id: $('Criar Pedido (DB)').item.json.pedido?.id || $json.pedido?.id || null, novo_status: 'NOVO' }) }}",
+        "options": {
+          "timeout": 8000
+        }
       },
-      "id": "node-switch-pag",
-      "name": "Switch Pagamento",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3.2,
-      "position": [1320, -120]
-    },
-    {
-      "parameters": {
-        "workflowId": {"__rl": true, "value": "WF_MERCADOPAGO", "mode": "list"},
-        "workflowInputs": {"value": "={{ { pedido: $json.pedido } }}"},
-        "options": {"waitForSubWorkflow": true}
-      },
-      "id": "node-call-mp",
-      "name": "Execute: MercadoPago Pix",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [1540, -220]
-    },
-    {
-      "parameters": {
-        "workflowId": {"__rl": true, "value": "WF_PRINTER", "mode": "list"},
-        "workflowInputs": {"value": "={{ { pedido: $('Criar Pedido (DB)').item.json.pedido } }}"},
-        "options": {"waitForSubWorkflow": false}
-      },
-      "id": "node-call-printer",
-      "name": "Execute: Printer",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [1540, -20]
-    },
-    {
-      "parameters": {
-        "workflowId": {"__rl": true, "value": "WF_GCAL", "mode": "list"},
-        "workflowInputs": {"value": "={{ { pedido: $('Criar Pedido (DB)').item.json.pedido } }}"},
-        "options": {"waitForSubWorkflow": false}
-      },
-      "id": "node-call-gcal",
-      "name": "Execute: Google Calendar",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [1540, 120]
+      "id": "node-cozinha",
+      "name": "Enviar p/ Cozinha (Webhook)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "UPDATE clientes SET estado_atual='HUMANO' WHERE telefone=$1; INSERT INTO eventos (telefone, tipo, payload) VALUES ($1,'FALLBACK_HUMANO',$2::jsonb);",
-        "options": {"queryReplacement":"={{ $('Normalize Input').item.json.telefone }},={{ JSON.stringify({mensagem:$('Normalize Input').item.json.mensagem,intencao:$('Parse AI JSON').item.json.intencao}) }}"}
+        "query": "INSERT INTO eventos (telefone, pedido_id, tipo, payload) VALUES ($1, ($2::json->>'id')::uuid, 'PEDIDO_CRIADO', $2::jsonb);",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input (Baileys Bridge)').item.json.telefone }},={{ JSON.stringify($('Criar Pedido (DB)').item.json.pedido) }}"
+        }
       },
       "id": "node-humano",
       "name": "Flag Humano",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1100, 120],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        1320,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE clientes SET estado_atual='HUMANO' WHERE telefone=$1; INSERT INTO eventos (telefone, tipo, payload) VALUES ($1,'FALLBACK_HUMANO', $2::jsonb);",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input (Baileys Bridge)').item.json.telefone }},={{ JSON.stringify({mensagem: $('Normalize Input (Baileys Bridge)').item.json.mensagem, intencao: $('Parse AI JSON').item.json.intencao}) }}"
+        }
+      },
+      "id": "node-flag-humano",
+      "name": "Flag Atendimento Humano",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        880,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $vars.SLACK_WEBHOOK_OPERACAO }}",
+        "url": "https://api.telegram.org/bot8635331490:AAHGusFD4MXpPl2cbP3PKcQM0pA0bEUAwaY/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({text: '⚠️ Humano necessário: ' + $('Normalize Input').item.json.telefone + ' — ' + $('Normalize Input').item.json.mensagem}) }}"
+        "jsonBody": "={{ JSON.stringify({chat_id: '6520024579', text: '⚠️ Cliente precisa de humano: ' + $('Normalize Input (Baileys Bridge)').item.json.telefone + '\n💬 ' + $('Normalize Input (Baileys Bridge)').item.json.mensagem}) }}",
+        "options": {
+          "timeout": 5000
+        }
       },
       "id": "node-slack-humano",
       "name": "Alerta Slack",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1320, 120]
+      "position": [
+        1100,
+        200
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
         "query": "UPDATE clientes SET estado_atual='FINALIZADO', contexto='{}'::jsonb WHERE telefone=$1;",
-        "options": {"queryReplacement":"={{ $('Normalize Input').item.json.telefone }}"}
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input (Baileys Bridge)').item.json.telefone }}"
+        }
       },
       "id": "node-cancelar",
       "name": "Reset Cliente",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1100, 320],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        880,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "url": "=http://127.0.0.1:3000/api/whatsapp/sessions/{{ $('Normalize Input (Baileys Bridge)').item.json.session_id }}/send",
         "sendHeaders": true,
-        "headerParameters": {"parameters":[
-          {"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
-          {"name":"Content-Type","value":"application/json"}
-        ]},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ number: $('Normalize Input').item.json.telefone, text: $('Parse AI JSON').item.json.resposta_cliente }) }}",
-        "options": {"timeout": 10000}
+        "jsonBody": "={{ JSON.stringify({ to: $('Normalize Input (Baileys Bridge)').item.json.telefone, text: (typeof $('Parse AI JSON').item.json.resposta_cliente === 'string' ? $('Parse AI JSON').item.json.resposta_cliente : ($('Parse AI JSON').item.json.resposta_cliente?.mensagem || $('Parse AI JSON').item.json.mensagem || $('Parse AI JSON').item.json.resposta || JSON.stringify($('Parse AI JSON').item.json.resposta_cliente))) }) }}",
+        "options": {
+          "timeout": 10000
+        }
       },
       "id": "node-send-wa",
-      "name": "Enviar WhatsApp (Baileys)",
+      "name": "Enviar WhatsApp (Baileys Bridge)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1760, 120]
+      "position": [
+        1540,
+        200
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO conversas (telefone, sender, mensagem, intencao) VALUES ($1,'bot',$2,$3);",
-        "options": {"queryReplacement":"={{ $('Normalize Input').item.json.telefone }},={{ $('Parse AI JSON').item.json.resposta_cliente }},={{ $('Parse AI JSON').item.json.intencao }}"}
+        "query": "INSERT INTO conversas (telefone, sender, mensagem, intencao) VALUES ($1, 'bot', $2, $3);",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Input (Baileys Bridge)').item.json.telefone }},={{ $('Parse AI JSON').item.json.resposta_cliente }},={{ $('Parse AI JSON').item.json.intencao }}"
+        }
       },
       "id": "node-log-out",
       "name": "Log Msg Bot",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
-      "position": [1980, 120],
-      "credentials": {"postgres": {"id": "PG_SALGADERIA", "name": "Postgres Salgaderia"}}
+      "position": [
+        1760,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\"ok\": true}",
-        "options": {"responseCode": 200}
+        "responseBody": "={{ {\"ok\": true, \"workflow\": \"salgaderia/whatsapp\", \"messageId\": $('Normalize Input (Baileys Bridge)').item.json.message_id || null} }}",
+        "options": {}
       },
       "id": "node-resp-ok",
       "name": "Responder 200",
       "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [2200, 120]
+      "typeVersion": 1.4,
+      "position": [
+        1980,
+        200
+      ],
+      "disabled": false
+    },
+    {
+      "parameters": {},
+      "id": "node-error-trigger",
+      "name": "Error Trigger (do próprio fluxo)",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1640,
+        600
+      ]
     },
     {
       "parameters": {
@@ -336,54 +604,315 @@
         "responseBody": "={\"ok\": false}",
         "options": {"responseCode": 401}
       },
-      "id": "node-resp-401",
-      "name": "Responder 401",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [-1200, 400]
+      "id": "node-log-error",
+      "name": "Log Erro",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1420,
+        600
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "ac52FiWRwwVN2iCh",
+          "name": "Postgres Salgaderia"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot8635331490:AAHGusFD4MXpPl2cbP3PKcQM0pA0bEUAwaY/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({chat_id: '6520024579', text: '🚨 Erro no fluxo Salgaderia:\n' + ($json.execution?.error?.message || 'desconhecido')}) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "node-error-slack",
+      "name": "Alerta Erro Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1200,
+        600
+      ]
     }
   ],
   "connections": {
-    "Webhook Baileys":          { "main": [[{"node": "Auth Token Baileys", "type": "main", "index": 0}]] },
-    "Auth Token Baileys":       { "main": [
-      [{"node": "Normalize Input", "type": "main", "index": 0}],
-      [{"node": "Responder 401", "type": "main", "index": 0}]
-    ]},
-    "Normalize Input":          { "main": [[{"node": "Guard", "type": "main", "index": 0}]] },
-    "Guard":                    { "main": [[{"node": "Upsert Cliente", "type": "main", "index": 0}], []] },
-    "Upsert Cliente":           { "main": [[{"node": "Log Msg Cliente", "type": "main", "index": 0}]] },
-    "Log Msg Cliente":          { "main": [[{"node": "Get Histórico", "type": "main", "index": 0}]] },
-    "Get Histórico":            { "main": [[{"node": "Build AI Context", "type": "main", "index": 0}]] },
-    "Build AI Context":         { "main": [[{"node": "AI Agent", "type": "main", "index": 0}]] },
-    "OpenAI Chat Model":        { "ai_languageModel": [[{"node": "AI Agent", "type": "ai_languageModel", "index": 0}]] },
-    "AI Agent":                 { "main": [[{"node": "Parse AI JSON", "type": "main", "index": 0}]] },
-    "Parse AI JSON":            { "main": [[{"node": "Update Estado Cliente", "type": "main", "index": 0}]] },
-    "Update Estado Cliente":    { "main": [[{"node": "Switch por acao", "type": "main", "index": 0}]] },
-    "Switch por acao":          { "main": [
-      [{"node": "Criar Pedido (DB)", "type": "main", "index": 0}],
-      [{"node": "Flag Humano", "type": "main", "index": 0}],
-      [{"node": "Reset Cliente", "type": "main", "index": 0}],
-      [{"node": "Enviar WhatsApp (Baileys)", "type": "main", "index": 0}]
-    ]},
-    "Criar Pedido (DB)":        { "main": [[
-      {"node": "Switch Pagamento", "type": "main", "index": 0},
-      {"node": "Execute: Printer", "type": "main", "index": 0},
-      {"node": "Execute: Google Calendar", "type": "main", "index": 0}
-    ]]},
-    "Switch Pagamento":         { "main": [
-      [{"node": "Execute: MercadoPago Pix", "type": "main", "index": 0}],
-      [{"node": "Enviar WhatsApp (Baileys)", "type": "main", "index": 0}]
-    ]},
-    "Execute: MercadoPago Pix": { "main": [[{"node": "Enviar WhatsApp (Baileys)", "type": "main", "index": 0}]] },
-    "Execute: Printer":         { "main": [[]] },
-    "Execute: Google Calendar": { "main": [[]] },
-    "Flag Humano":              { "main": [[{"node": "Alerta Slack", "type": "main", "index": 0}]] },
-    "Alerta Slack":             { "main": [[{"node": "Enviar WhatsApp (Baileys)", "type": "main", "index": 0}]] },
-    "Reset Cliente":            { "main": [[{"node": "Enviar WhatsApp (Baileys)", "type": "main", "index": 0}]] },
-    "Enviar WhatsApp (Baileys)":{ "main": [[{"node": "Log Msg Bot", "type": "main", "index": 0}]] },
-    "Log Msg Bot":              { "main": [[{"node": "Responder 200", "type": "main", "index": 0}]] }
+    "Webhook Evolution API": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input (Baileys Bridge)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input (Baileys Bridge)": {
+      "main": [
+        [
+          {
+            "node": "Guard (ignorar fromMe/vazio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard (ignorar fromMe/vazio)": {
+      "main": [
+        [
+          {
+            "node": "Upsert Cliente + Get Estado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Upsert Cliente + Get Estado": {
+      "main": [
+        [
+          {
+            "node": "Log Msg Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Msg Cliente": {
+      "main": [
+        [
+          {
+            "node": "Get Histórico (12 últimas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Histórico (12 últimas)": {
+      "main": [
+        [
+          {
+            "node": "Build AI Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Context": {
+      "main": [
+        [
+          {
+            "node": "AI Agent (Dona Salgada)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (Dona Salgada)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent (Dona Salgada)": {
+      "main": [
+        [
+          {
+            "node": "Parse AI JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI JSON": {
+      "main": [
+        [
+          {
+            "node": "Update Estado Cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Estado Cliente": {
+      "main": [
+        [
+          {
+            "node": "Switch por acao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch por acao": {
+      "main": [
+        [
+          {
+            "node": "Criar Pedido (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag Atendimento Humano",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resetar Cliente (Cancelar)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar WhatsApp (Baileys Bridge)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar Pedido (DB)": {
+      "main": [
+        [
+          {
+            "node": "Enviar p/ Cozinha (Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar p/ Cozinha (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "Log Evento Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Evento Pedido": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp (Baileys Bridge)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flag Atendimento Humano": {
+      "main": [
+        [
+          {
+            "node": "Alertar Operação (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alertar Operação (Slack)": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp (Baileys Bridge)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resetar Cliente (Cancelar)": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp (Baileys Bridge)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar WhatsApp (Baileys Bridge)": {
+      "main": [
+        [
+          {
+            "node": "Log Msg Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Msg Bot": {
+      "main": [
+        [
+          {
+            "node": "Responder Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger (do próprio fluxo)": {
+      "main": [
+        [
+          {
+            "node": "Log Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Erro": {
+      "main": [
+        [
+          {
+            "node": "Alerta Erro Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "active": false,
-  "settings": {"executionOrder": "v1", "saveDataErrorExecution": "all"},
-  "tags": [{"name": "salgaderia"}, {"name": "whatsapp"}, {"name": "baileys"}]
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": ""
+  },
+  "pinData": {}
 }
