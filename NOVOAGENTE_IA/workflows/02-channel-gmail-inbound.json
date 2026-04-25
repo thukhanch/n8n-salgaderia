@@ -1,0 +1,91 @@
+{
+  "name": "02 - Channel: Gmail Inbound (poll)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {"item": [{"mode":"everyMinute"}]},
+        "simple": false,
+        "filters": {"labelIds":["INBOX","UNREAD"]},
+        "options": {}
+      },
+      "id": "n-trg",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [-1800, 300],
+      "credentials": {"gmailOAuth2": {"id":"GMAIL_OAUTH","name":"Gmail"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "const m = $json;\nconst from = (m.From || m.from || '').match(/<(.+)>/)?.[1] || (m.From || m.from || '').trim();\nreturn [{ json: {\n  message_id: m.id || m.messageId,\n  from,\n  subject: m.Subject || m.subject || '',\n  snippet: m.snippet || '',\n  text: m.text || m.textPlain || m.snippet || '',\n  to_mailbox: (m.To || m.to || '').match(/<(.+)>/)?.[1] || (m.To || m.to || '').trim()\n}}];"
+      },
+      "id": "n-ext",
+      "name": "Extract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1580, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT t.id AS tenant_id FROM channels c JOIN tenants t ON t.id=c.tenant_id WHERE c.kind='gmail' AND c.external_id=$1 AND c.ativo AND t.ativo LIMIT 1;",
+        "options": {"queryReplacement":"={{ $json.to_mailbox }}"}
+      },
+      "id": "n-tenant",
+      "name": "Resolve Tenant",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-1360, 300],
+      "credentials": {"postgres": {"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upsert AS (INSERT INTO contacts (tenant_id, email) VALUES ($1::uuid, $2) ON CONFLICT DO NOTHING RETURNING id) SELECT COALESCE((SELECT id FROM upsert), (SELECT id FROM contacts WHERE tenant_id=$1::uuid AND email=$2 LIMIT 1)) AS contact_id;",
+        "options": {"queryReplacement":"={{ $('Resolve Tenant').item.json.tenant_id }},={{ $('Extract').item.json.from }}"}
+      },
+      "id": "n-contact",
+      "name": "Upsert Contact",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-1140, 300],
+      "credentials": {"postgres": {"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "workflowId": {"__rl": true, "value": "WF_AGENT_ROUTER", "mode": "list"},
+        "workflowInputs": {"value": "={{ { tenant_id: $('Resolve Tenant').item.json.tenant_id, contact_id: $json.contact_id, channel: 'gmail', message: '[Assunto: ' + $('Extract').item.json.subject + ']\\n' + $('Extract').item.json.text } }}"},
+        "options": {"waitForSubWorkflow": true}
+      },
+      "id": "n-agent",
+      "name": "Execute: Agent Router",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [-920, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Extract').item.json.from }}",
+        "subject": "=Re: {{ $('Extract').item.json.subject }}",
+        "message": "={{ $json.reply }}",
+        "options": {"appendAttribution": false}
+      },
+      "id": "n-reply",
+      "name": "Gmail: Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [-700, 300],
+      "credentials": {"gmailOAuth2": {"id":"GMAIL_OAUTH","name":"Gmail"}}
+    }
+  ],
+  "connections": {
+    "Gmail Trigger":       { "main": [[{"node":"Extract","type":"main","index":0}]] },
+    "Extract":             { "main": [[{"node":"Resolve Tenant","type":"main","index":0}]] },
+    "Resolve Tenant":      { "main": [[{"node":"Upsert Contact","type":"main","index":0}]] },
+    "Upsert Contact":      { "main": [[{"node":"Execute: Agent Router","type":"main","index":0}]] },
+    "Execute: Agent Router":{ "main": [[{"node":"Gmail: Reply","type":"main","index":0}]] }
+  },
+  "active": false,
+  "settings": {"executionOrder":"v1"},
+  "tags": [{"name":"channel"},{"name":"gmail"}]
+}

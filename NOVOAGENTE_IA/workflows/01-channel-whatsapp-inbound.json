@@ -1,0 +1,147 @@
+{
+  "name": "01 - Channel: WhatsApp Inbound (Baileys)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/whatsapp",
+        "responseMode": "responseNode"
+      },
+      "id": "n-wh",
+      "name": "Webhook Baileys",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1800, 300],
+      "webhookId": "agent-wa-inbound"
+    },
+    {
+      "parameters": {
+        "conditions": {"options":{"caseSensitive":true,"typeValidation":"strict"},"conditions":[
+          {"id":"a","leftValue":"={{ $json.headers.authorization || '' }}","rightValue":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}","operator":{"type":"string","operation":"equals"}}
+        ],"combinator":"and"}
+      },
+      "id": "n-auth",
+      "name": "Auth",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-1580, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments":[
+          {"id":"1","name":"instance","value":"={{ $json.body.instance }}","type":"string"},
+          {"id":"2","name":"telefone","value":"={{ $json.body.telefone }}","type":"string"},
+          {"id":"3","name":"pushName","value":"={{ $json.body.pushName || '' }}","type":"string"},
+          {"id":"4","name":"message","value":"={{ $json.body.text || '' }}","type":"string"},
+          {"id":"5","name":"messageType","value":"={{ $json.body.messageType || 'text' }}","type":"string"},
+          {"id":"6","name":"fromMe","value":"={{ $json.body.fromMe || false }}","type":"boolean"},
+          {"id":"7","name":"hasMedia","value":"={{ $json.body.hasMedia || false }}","type":"boolean"}
+        ]}
+      },
+      "id": "n-norm",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-1360, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {"options":{"caseSensitive":true,"typeValidation":"strict"},"conditions":[
+          {"id":"fm","leftValue":"={{ $json.fromMe }}","rightValue":true,"operator":{"type":"boolean","operation":"false"}},
+          {"id":"tel","leftValue":"={{ $json.telefone }}","rightValue":"","operator":{"type":"string","operation":"notEmpty"}},
+          {"id":"msg","leftValue":"={{ $json.message }}","rightValue":"","operator":{"type":"string","operation":"notEmpty"}}
+        ],"combinator":"and"}
+      },
+      "id": "n-guard",
+      "name": "Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-1140, 240]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT t.id AS tenant_id, t.slug FROM channels c JOIN tenants t ON t.id=c.tenant_id WHERE c.kind='whatsapp' AND c.external_id=$1 AND c.ativo AND t.ativo LIMIT 1;",
+        "options": {"queryReplacement":"={{ $json.instance }}"}
+      },
+      "id": "n-tenant",
+      "name": "Resolve Tenant",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-920, 240],
+      "credentials": {"postgres": {"id": "PG_AGENT", "name": "Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO contacts (tenant_id, telefone, nome) VALUES ($1::uuid, $2, NULLIF($3,'')) ON CONFLICT (tenant_id, telefone) WHERE telefone IS NOT NULL DO UPDATE SET ultima_msg_em = NOW(), nome = COALESCE(contacts.nome, EXCLUDED.nome) RETURNING id AS contact_id;",
+        "options": {"queryReplacement":"={{ $('Resolve Tenant').item.json.tenant_id }},={{ $('Normalize').item.json.telefone }},={{ $('Normalize').item.json.pushName }}"}
+      },
+      "id": "n-contact",
+      "name": "Upsert Contact",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-700, 240],
+      "credentials": {"postgres": {"id": "PG_AGENT", "name": "Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "conditions": {"options":{"caseSensitive":false},"conditions":[
+          {"id":"hu","leftValue":"={{ $json.estado || '' }}","rightValue":"HUMANO","operator":{"type":"string","operation":"notEquals"}}
+        ],"combinator":"and"}
+      },
+      "id": "n-humano",
+      "name": "Skip if HUMAN",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-480, 240]
+    },
+    {
+      "parameters": {
+        "workflowId": {"__rl": true, "value": "WF_AGENT_ROUTER", "mode": "list"},
+        "workflowInputs": {"value": "={{ { tenant_id: $('Resolve Tenant').item.json.tenant_id, contact_id: $('Upsert Contact').item.json.contact_id, channel: 'whatsapp', message: $('Normalize').item.json.message } }}"},
+        "options": {"waitForSubWorkflow": true}
+      },
+      "id": "n-call-agent",
+      "name": "Execute: Agent Router",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [-260, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "sendHeaders": true,
+        "headerParameters": {"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody": true,
+        "specifyBody":"json",
+        "jsonBody": "={{ JSON.stringify({ instance: $('Normalize').item.json.instance, number: $('Normalize').item.json.telefone, text: $json.reply }) }}"
+      },
+      "id": "n-send",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-40, 180]
+    },
+    {"parameters":{"respondWith":"json","responseBody":"={\"ok\":true}","options":{"responseCode":200}},"id":"n-ok","name":"200","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.1,"position":[180,180]},
+    {"parameters":{"respondWith":"json","responseBody":"={\"ok\":false}","options":{"responseCode":401}},"id":"n-401","name":"401","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.1,"position":[-1360,480]}
+  ],
+  "connections": {
+    "Webhook Baileys":{ "main": [[{"node":"Auth","type":"main","index":0}]] },
+    "Auth":           { "main": [[{"node":"Normalize","type":"main","index":0}],[{"node":"401","type":"main","index":0}]] },
+    "Normalize":      { "main": [[{"node":"Guard","type":"main","index":0}]] },
+    "Guard":          { "main": [[{"node":"Resolve Tenant","type":"main","index":0}],[{"node":"200","type":"main","index":0}]] },
+    "Resolve Tenant": { "main": [[{"node":"Upsert Contact","type":"main","index":0}]] },
+    "Upsert Contact": { "main": [[{"node":"Skip if HUMAN","type":"main","index":0}]] },
+    "Skip if HUMAN":  { "main": [[{"node":"Execute: Agent Router","type":"main","index":0}],[{"node":"200","type":"main","index":0}]] },
+    "Execute: Agent Router":{ "main": [[{"node":"Send WhatsApp","type":"main","index":0}]] },
+    "Send WhatsApp":  { "main": [[{"node":"200","type":"main","index":0}]] }
+  },
+  "active": false,
+  "settings": {"executionOrder":"v1","saveDataErrorExecution":"all"},
+  "tags": [{"name":"channel"},{"name":"whatsapp"}]
+}

@@ -1,0 +1,49 @@
+{
+  "name": "22 - Tool: calendar.cancel",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1600,300]},
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT a.id, a.gcal_event_id, t.config->>'calendar_id' AS calendar_id FROM appointments a JOIN tenants t ON t.id=a.tenant_id WHERE a.id=$1::uuid AND a.tenant_id=$2::uuid;",
+        "options":{"queryReplacement":"={{ $json.appointment_id }},={{ $json.tenant_id }}"}
+      },
+      "id":"g","name":"Get Appointment",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1380,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "resource":"event","operation":"delete",
+        "calendar":{"__rl":true,"value":"={{ $json.calendar_id || 'primary' }}","mode":"id"},
+        "eventId":"={{ $json.gcal_event_id }}"
+      },
+      "id":"d","name":"GCal: Delete",
+      "type":"n8n-nodes-base.googleCalendar","typeVersion":1.3,"position":[-1160,300],
+      "credentials":{"googleCalendarOAuth2Api":{"id":"GCAL_OAUTH","name":"Google Calendar"}},
+      "onError":"continueRegularOutput"
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"UPDATE appointments SET status='CANCELADO' WHERE id=$1::uuid;",
+        "options":{"queryReplacement":"={{ $('Get Appointment').item.json.id }}"}
+      },
+      "id":"u","name":"Mark Canceled",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-940,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{"assignments":{"assignments":[{"id":"1","name":"ok","value":true,"type":"boolean"}]}},
+      "id":"r","name":"Return","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[-720,300]
+    }
+  ],
+  "connections":{
+    "When Called by Workflow":{ "main": [[{"node":"Get Appointment","type":"main","index":0}]] },
+    "Get Appointment":         { "main": [[{"node":"GCal: Delete","type":"main","index":0}]] },
+    "GCal: Delete":            { "main": [[{"node":"Mark Canceled","type":"main","index":0}]] },
+    "Mark Canceled":           { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"calendar"}]
+}

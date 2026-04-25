@@ -1,0 +1,29 @@
+{
+  "name": "51 - Tool: deal.upsert",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1600,300]},
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"WITH existing AS (SELECT id FROM deals WHERE tenant_id=$1::uuid AND contact_id=$2::uuid AND stage NOT IN ('GANHO','PERDIDO') ORDER BY atualizado_em DESC LIMIT 1), upserted AS (INSERT INTO deals (tenant_id, contact_id, titulo, stage, valor, itens) SELECT $1::uuid, $2::uuid, $3, $4, $5::numeric, $6::jsonb WHERE NOT EXISTS (SELECT 1 FROM existing) RETURNING *), updated AS (UPDATE deals SET titulo=$3, stage=$4, valor=$5::numeric, itens=$6::jsonb WHERE id=(SELECT id FROM existing) RETURNING *) SELECT * FROM upserted UNION ALL SELECT * FROM updated;",
+        "options":{"queryReplacement":"={{ $json.tenant_id }},={{ $json.contact_id }},={{ $json.titulo }},={{ $json.stage || 'LEAD' }},={{ $json.valor || 0 }},={{ JSON.stringify($json.itens || []) }}"}
+      },
+      "id":"u","name":"Upsert Deal",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1380,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{"assignments":{"assignments":[
+        {"id":"1","name":"ok","value":true,"type":"boolean"},
+        {"id":"2","name":"data","value":"={{ { deal_id: $json.id, stage: $json.stage, valor: $json.valor } }}","type":"object"}
+      ]}},
+      "id":"r","name":"Return","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[-1160,300]
+    }
+  ],
+  "connections":{
+    "When Called by Workflow":{ "main": [[{"node":"Upsert Deal","type":"main","index":0}]] },
+    "Upsert Deal":             { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"deal"}]
+}

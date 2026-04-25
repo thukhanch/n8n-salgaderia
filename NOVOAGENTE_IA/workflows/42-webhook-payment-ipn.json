@@ -1,0 +1,87 @@
+{
+  "name": "42 - Webhook: Payment IPN (Mercado Pago)",
+  "nodes": [
+    {
+      "parameters":{"httpMethod":"POST","path":"agent/mp-webhook","responseMode":"responseNode"},
+      "id":"w","name":"Webhook MP","type":"n8n-nodes-base.webhook","typeVersion":2,"position":[-1800,300],
+      "webhookId":"agent-mp-ipn"
+    },
+    {
+      "parameters":{
+        "jsCode":"const b = $json.body || $json;\nif ((b.type || b.topic) !== 'payment') return [{ json: { skip: true } }];\nconst id = b.data?.id || b.resource?.split('/').pop();\nreturn [{ json: { provider_id: String(id) } }];"
+      },
+      "id":"p","name":"Parse",
+      "type":"n8n-nodes-base.code","typeVersion":2,"position":[-1580,300]
+    },
+    {
+      "parameters":{"conditions":{"options":{"caseSensitive":true,"typeValidation":"strict"},"conditions":[{"id":"s","leftValue":"={{ $json.skip }}","rightValue":true,"operator":{"type":"boolean","operation":"false"}}],"combinator":"and"}},
+      "id":"i","name":"If not skip","type":"n8n-nodes-base.if","typeVersion":2,"position":[-1360,300]
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT p.id AS payment_id, p.tenant_id, p.contact_id, p.amount, p.deal_id, t.config->>'mp_access_token' AS mp_token, c.telefone, c.email FROM payments p JOIN tenants t ON t.id=p.tenant_id LEFT JOIN contacts c ON c.id=p.contact_id WHERE p.provider_id=$1 LIMIT 1;",
+        "options":{"queryReplacement":"={{ $json.provider_id }}"}
+      },
+      "id":"q","name":"Find Payment",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1140,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "method":"GET",
+        "url":"=https://api.mercadopago.com/v1/payments/{{ $('Parse').item.json.provider_id }}",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{ $json.mp_token || $vars.MP_ACCESS_TOKEN }}"}]}
+      },
+      "id":"m","name":"MP: Get Payment",
+      "type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[-920,300]
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"UPDATE payments SET status=$2, paid_at=CASE WHEN $2='approved' THEN NOW() ELSE paid_at END, raw=$3::jsonb WHERE id=$1::uuid RETURNING *;\nUPDATE deals SET stage=CASE WHEN $2='approved' THEN 'GANHO' ELSE stage END, fechado_em=CASE WHEN $2='approved' THEN NOW() ELSE fechado_em END WHERE id=(SELECT deal_id FROM payments WHERE id=$1::uuid);",
+        "options":{"queryReplacement":"={{ $('Find Payment').item.json.payment_id }},={{ $json.status }},={{ JSON.stringify($json) }}"}
+      },
+      "id":"u","name":"Update Payment+Deal",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-700,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"ap","leftValue":"={{ $json.status }}","rightValue":"approved","operator":{"type":"string","operation":"equals"}}],"combinator":"and"}},
+      "id":"ia","name":"If approved",
+      "type":"n8n-nodes-base.if","typeVersion":2,"position":[-480,300]
+    },
+    {
+      "parameters":{
+        "method":"POST",
+        "url":"=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody":true,"specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify({ number: $('Find Payment').item.json.telefone, text: '✅ Pagamento de R$ ' + Number($('Find Payment').item.json.amount).toFixed(2) + ' confirmado. Obrigado!' }) }}"
+      },
+      "id":"n","name":"Notify Contact",
+      "type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[-260,220]
+    },
+    {
+      "parameters":{"respondWith":"json","responseBody":"={\"ok\":true}","options":{"responseCode":200}},
+      "id":"o","name":"200","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.1,"position":[-40,300]
+    }
+  ],
+  "connections":{
+    "Webhook MP":          { "main": [[{"node":"Parse","type":"main","index":0}]] },
+    "Parse":               { "main": [[{"node":"If not skip","type":"main","index":0}]] },
+    "If not skip":         { "main": [[{"node":"Find Payment","type":"main","index":0}],[{"node":"200","type":"main","index":0}]] },
+    "Find Payment":        { "main": [[{"node":"MP: Get Payment","type":"main","index":0}]] },
+    "MP: Get Payment":     { "main": [[{"node":"Update Payment+Deal","type":"main","index":0}]] },
+    "Update Payment+Deal": { "main": [[{"node":"If approved","type":"main","index":0}]] },
+    "If approved":         { "main": [[{"node":"Notify Contact","type":"main","index":0}],[{"node":"200","type":"main","index":0}]] },
+    "Notify Contact":      { "main": [[{"node":"200","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1","saveDataErrorExecution":"all"},
+  "tags":[{"name":"webhook"},{"name":"payment"}]
+}

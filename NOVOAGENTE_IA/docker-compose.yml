@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-agent}
+      POSTGRES_DB: agent
+    volumes:
+      - ./pg-data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./database/seeds.sql:/docker-entrypoint-initdb.d/002_seeds.sql:ro
+    ports: ["5432:5432"]
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    depends_on: [postgres]
+    environment:
+      - N8N_HOST=${N8N_HOST:-n8n.local}
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=${WEBHOOK_URL:-https://n8n.local}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_DATABASE=agent
+      - DB_POSTGRESDB_USER=agent
+      - DB_POSTGRESDB_PASSWORD=${PG_PASSWORD:-agent}
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+    ports: ["5678:5678"]
+
+  baileys:
+    build: ./baileys-service
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - AUTH_DIR=/app/auth
+      - WEBHOOK_N8N_URL=${BAILEYS_WEBHOOK_N8N_URL}
+      - SERVICE_TOKEN=${BAILEYS_SERVICE_TOKEN}
+      - INSTANCES=${BAILEYS_INSTANCES:-demo}
+    volumes:
+      - ./baileys-auth:/app/auth
+    ports: ["3001:3001"]

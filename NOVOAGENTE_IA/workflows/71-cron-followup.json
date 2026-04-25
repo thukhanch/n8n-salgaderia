@@ -1,0 +1,65 @@
+{
+  "name": "71 - Cron: Follow-up (contatos parados)",
+  "nodes": [
+    {"parameters":{"rule":{"interval":[{"field":"hours","hoursInterval":2}]}},"id":"c","name":"Cron 2h","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.2,"position":[-1600,300]},
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT c.*, t.slug AS tenant_slug FROM vw_contacts_inativos_7d c JOIN tenants t ON t.id=c.tenant_id LIMIT 100;"
+      },
+      "id":"q","name":"Query inativos",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1380,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "workflowId":{"__rl":true,"value":"WF_AGENT_ROUTER","mode":"list"},
+        "workflowInputs":{"value":"={{ { tenant_id: $json.tenant_id, contact_id: $json.id, channel: $json.telefone ? 'whatsapp' : 'gmail', message: '[FOLLOWUP_AUTOMATICO] Reengaje educadamente perguntando se ainda posso ajudar em algo. Seja breve (1 linha).' } }}"},
+        "options":{"waitForSubWorkflow":true}
+      },
+      "id":"a","name":"Call Agent",
+      "type":"n8n-nodes-base.executeWorkflow","typeVersion":1.2,"position":[-1160,300]
+    },
+    {
+      "parameters":{
+        "rules":{"values":[
+          {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"wa","leftValue":"={{ $json.channel }}","rightValue":"whatsapp","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"WHATSAPP"}
+        ]},
+        "options":{"fallbackOutput":"extra"}
+      },
+      "id":"sw","name":"Channel","type":"n8n-nodes-base.switch","typeVersion":3.2,"position":[-940,300]
+    },
+    {
+      "parameters":{
+        "method":"POST",
+        "url":"=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"}]},
+        "sendBody":true,"specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify({ number: $('Query inativos').item.json.telefone, text: $json.reply }) }}",
+        "options":{"batching":{"batch":{"batchSize":3,"batchInterval":2500}}}
+      },
+      "id":"w","name":"Send WA",
+      "type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[-720,220]
+    },
+    {
+      "parameters":{
+        "sendTo":"={{ $('Query inativos').item.json.email }}",
+        "subject":"=Ainda podemos ajudar?",
+        "message":"={{ $json.reply }}",
+        "options":{"appendAttribution":false}
+      },
+      "id":"g","name":"Send Gmail",
+      "type":"n8n-nodes-base.gmail","typeVersion":2.1,"position":[-720,420],
+      "credentials":{"gmailOAuth2":{"id":"GMAIL_OAUTH","name":"Gmail"}}
+    }
+  ],
+  "connections":{
+    "Cron 2h":        { "main": [[{"node":"Query inativos","type":"main","index":0}]] },
+    "Query inativos": { "main": [[{"node":"Call Agent","type":"main","index":0}]] },
+    "Call Agent":     { "main": [[{"node":"Channel","type":"main","index":0}]] },
+    "Channel":        { "main": [[{"node":"Send WA","type":"main","index":0}],[{"node":"Send Gmail","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1","saveDataErrorExecution":"all"},
+  "tags":[{"name":"cron"},{"name":"followup"}]
+}

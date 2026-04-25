@@ -1,0 +1,59 @@
+{
+  "name": "60 - Tool: handoff.human",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1800,300]},
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"UPDATE contacts SET estado='HUMANO' WHERE id=$1::uuid AND tenant_id=$2::uuid RETURNING nome, telefone, email;\nINSERT INTO events (tenant_id, contact_id, tipo, payload) VALUES ($2::uuid,$1::uuid,'HANDOFF_HUMAN',$3::jsonb);",
+        "options":{"queryReplacement":"={{ $json.contact_id }},={{ $json.tenant_id }},={{ JSON.stringify({ motivo: $json.motivo, resumo: $json.resumo }) }}"}
+      },
+      "id":"u","name":"Mark HUMAN",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1580,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT config->>'handoff_channel' AS webhook FROM tenants WHERE id=$1::uuid;",
+        "options":{"queryReplacement":"={{ $('When Called by Workflow').item.json.tenant_id }}"}
+      },
+      "id":"t","name":"Get Handoff URL",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1360,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"hw","leftValue":"={{ $json.webhook }}","rightValue":"","operator":{"type":"string","operation":"notEmpty"}}],"combinator":"and"}
+      },
+      "id":"i","name":"If Has Webhook",
+      "type":"n8n-nodes-base.if","typeVersion":2,"position":[-1140,300]
+    },
+    {
+      "parameters":{
+        "method":"POST",
+        "url":"={{ $json.webhook }}",
+        "sendBody":true,"specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify({ text: '⚠️ Handoff: ' + ($('Mark HUMAN').item.json.nome || $('Mark HUMAN').item.json.telefone || $('Mark HUMAN').item.json.email) + '\\nMotivo: ' + $('When Called by Workflow').item.json.motivo + '\\nResumo: ' + $('When Called by Workflow').item.json.resumo }) }}"
+      },
+      "id":"p","name":"Post Slack/Discord",
+      "type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[-920,220]
+    },
+    {
+      "parameters":{"assignments":{"assignments":[
+        {"id":"1","name":"ok","value":true,"type":"boolean"},
+        {"id":"2","name":"data","value":"={{ { handed_off: true } }}","type":"object"}
+      ]}},
+      "id":"r","name":"Return","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[-700,300]
+    }
+  ],
+  "connections":{
+    "When Called by Workflow":{ "main": [[{"node":"Mark HUMAN","type":"main","index":0}]] },
+    "Mark HUMAN":              { "main": [[{"node":"Get Handoff URL","type":"main","index":0}]] },
+    "Get Handoff URL":         { "main": [[{"node":"If Has Webhook","type":"main","index":0}]] },
+    "If Has Webhook":          { "main": [[{"node":"Post Slack/Discord","type":"main","index":0}],[{"node":"Return","type":"main","index":0}]] },
+    "Post Slack/Discord":      { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"handoff"}]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "31 - Tool: gmail.search",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1600,300]},
+    {
+      "parameters":{
+        "operation":"getAll",
+        "returnAll":false,
+        "limit":10,
+        "filters":{"q":"={{ $json.query }}"},
+        "options":{}
+      },
+      "id":"g","name":"Gmail: Get",
+      "type":"n8n-nodes-base.gmail","typeVersion":2.1,"position":[-1380,300],
+      "credentials":{"gmailOAuth2":{"id":"GMAIL_OAUTH","name":"Gmail"}}
+    },
+    {
+      "parameters":{
+        "jsCode":"const msgs = $input.all().map(i => ({ id: i.json.id, from: i.json.From || i.json.from, subject: i.json.Subject || i.json.subject, snippet: i.json.snippet, date: i.json.Date || i.json.date }));\nreturn [{ json: { ok: true, data: { messages: msgs } } }];"
+      },
+      "id":"r","name":"Return","type":"n8n-nodes-base.code","typeVersion":2,"position":[-1160,300]
+    }
+  ],
+  "connections":{
+    "When Called by Workflow":{ "main": [[{"node":"Gmail: Get","type":"main","index":0}]] },
+    "Gmail: Get":              { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"gmail"}]
+}

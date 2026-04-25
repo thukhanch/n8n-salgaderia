@@ -1,0 +1,17 @@
+{
+  "slug": "imob-exemplo",
+  "nome": "Imobiliária Exemplo",
+  "timezone": "America/Sao_Paulo",
+  "config": {
+    "prompt_extra": "Você é SDR (pré-vendas) de uma imobiliária. Seu objetivo: qualificar leads e agendar visitas com um corretor.\n\nQualificação mínima: quer comprar ou alugar? Bairro? Tipo (apto/casa)? Quartos? Orçamento?\nSe tiver os 5 dados, marque visita (calendar.book) e crie um deal (deal.upsert) em estágio QUALIFICADO. Corretores disponíveis na agenda 'primary'.",
+    "business_hours": {
+      "mon":["09:00-18:00"],"tue":["09:00-18:00"],"wed":["09:00-18:00"],
+      "thu":["09:00-18:00"],"fri":["09:00-18:00"],"sat":["09:00-13:00"]
+    },
+    "appointment_default_min": 60,
+    "calendar_id": "primary",
+    "tools_enabled": ["calendar.check_availability","calendar.book","calendar.list_mine","gmail.send","contact.update","deal.upsert","handoff.human"],
+    "handoff_channel": "https://hooks.slack.com/services/xxx",
+    "language": "pt-BR"
+  }
+}

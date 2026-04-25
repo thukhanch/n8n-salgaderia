@@ -1,0 +1,51 @@
+{
+  "name": "41 - Tool: payment.status",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1600,300]},
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT p.*, t.config->>'mp_access_token' AS mp_token FROM payments p JOIN tenants t ON t.id=p.tenant_id WHERE p.id=$1::uuid AND p.tenant_id=$2::uuid;",
+        "options":{"queryReplacement":"={{ $json.payment_id }},={{ $json.tenant_id }}"}
+      },
+      "id":"g","name":"Get Payment",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1380,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "method":"GET",
+        "url":"=https://api.mercadopago.com/v1/payments/{{ $json.provider_id }}",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{ $json.mp_token || $vars.MP_ACCESS_TOKEN }}"}]}
+      },
+      "id":"m","name":"MP: Get Payment",
+      "type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[-1160,300]
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"UPDATE payments SET status=$2, paid_at=CASE WHEN $2='approved' THEN NOW() ELSE paid_at END, raw=$3::jsonb WHERE id=$1::uuid RETURNING status, paid_at, amount;",
+        "options":{"queryReplacement":"={{ $('Get Payment').item.json.id }},={{ $json.status }},={{ JSON.stringify($json) }}"}
+      },
+      "id":"u","name":"Update Payment",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-940,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{"assignments":{"assignments":[
+        {"id":"1","name":"ok","value":true,"type":"boolean"},
+        {"id":"2","name":"data","value":"={{ { status: $json.status, paid_at: $json.paid_at, amount: $json.amount } }}","type":"object"}
+      ]}},
+      "id":"r","name":"Return","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[-720,300]
+    }
+  ],
+  "connections":{
+    "When Called by Workflow":{ "main": [[{"node":"Get Payment","type":"main","index":0}]] },
+    "Get Payment":             { "main": [[{"node":"MP: Get Payment","type":"main","index":0}]] },
+    "MP: Get Payment":         { "main": [[{"node":"Update Payment","type":"main","index":0}]] },
+    "Update Payment":          { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"payment"}]
+}

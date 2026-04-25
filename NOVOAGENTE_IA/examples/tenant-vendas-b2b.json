@@ -1,0 +1,16 @@
+{
+  "slug": "b2b-saas",
+  "nome": "SaaS B2B Exemplo",
+  "timezone": "America/Sao_Paulo",
+  "config": {
+    "prompt_extra": "Você é SDR B2B de um SaaS de gestão financeira.\n\nFramework de qualificação (BANT):\n- Budget: faixa de investimento?\n- Authority: é decisor? Quem decide?\n- Need: qual a dor principal?\n- Timeline: quando pretendem resolver?\n\nSe lead qualificado (BANT completo e score > 60), marcar demo de 30min com AE (calendar.book) e criar deal em estágio QUALIFICADO. Se desqualificado, agradeça e encerre (não insista).\n\nPlanos: Starter R$ 297/mês, Business R$ 897/mês, Enterprise sob consulta.",
+    "business_hours": {
+      "mon":["09:00-18:00"],"tue":["09:00-18:00"],"wed":["09:00-18:00"],"thu":["09:00-18:00"],"fri":["09:00-17:00"]
+    },
+    "appointment_default_min": 30,
+    "calendar_id": "primary",
+    "tools_enabled": ["calendar.check_availability","calendar.book","calendar.list_mine","gmail.send","gmail.search","contact.update","deal.upsert","handoff.human"],
+    "handoff_channel": "https://hooks.slack.com/services/xxx",
+    "language": "pt-BR"
+  }
+}

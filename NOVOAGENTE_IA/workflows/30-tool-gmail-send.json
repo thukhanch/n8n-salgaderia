@@ -1,0 +1,42 @@
+{
+  "name": "30 - Tool: gmail.send",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1600,300]},
+    {
+      "parameters":{
+        "sendTo":"={{ $json.to }}",
+        "subject":"={{ $json.subject }}",
+        "emailType":"={{ $json.body_html ? 'html' : 'text' }}",
+        "message":"={{ $json.body_html || $json.body_text }}",
+        "options":{"appendAttribution":false}
+      },
+      "id":"g","name":"Gmail: Send",
+      "type":"n8n-nodes-base.gmail","typeVersion":2.1,"position":[-1380,300],
+      "credentials":{"gmailOAuth2":{"id":"GMAIL_OAUTH","name":"Gmail"}}
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"INSERT INTO tool_calls (tenant_id, tool, input, output, success) VALUES ($1::uuid,'gmail.send',$2::jsonb,$3::jsonb,TRUE);",
+        "options":{"queryReplacement":"={{ $('When Called by Workflow').item.json.tenant_id }},={{ JSON.stringify($('When Called by Workflow').item.json) }},={{ JSON.stringify($json) }}"}
+      },
+      "id":"l","name":"Log",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1160,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{"assignments":{"assignments":[
+        {"id":"1","name":"ok","value":true,"type":"boolean"},
+        {"id":"2","name":"data","value":"={{ { message_id: $json.id || $json.messageId } }}","type":"object"}
+      ]}},
+      "id":"r","name":"Return","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[-940,300]
+    }
+  ],
+  "connections":{
+    "When Called by Workflow":{ "main": [[{"node":"Gmail: Send","type":"main","index":0}]] },
+    "Gmail: Send":             { "main": [[{"node":"Log","type":"main","index":0}]] },
+    "Log":                     { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"gmail"}]
+}

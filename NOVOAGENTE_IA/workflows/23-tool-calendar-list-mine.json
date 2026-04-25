@@ -1,0 +1,28 @@
+{
+  "name": "23 - Tool: calendar.list_mine",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1600,300]},
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT id, titulo, inicio, fim, status FROM appointments WHERE tenant_id=$1::uuid AND contact_id=$2::uuid AND inicio >= NOW() AND status IN ('AGENDADO','CONFIRMADO','REAGENDADO') ORDER BY inicio ASC LIMIT 10;",
+        "options":{"queryReplacement":"={{ $json.tenant_id }},={{ $json.contact_id }}"}
+      },
+      "id":"q","name":"Query",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1380,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "jsCode":"return [{ json: { ok: true, data: { appointments: $input.all().map(i=>i.json) } } }];"
+      },
+      "id":"r","name":"Return","type":"n8n-nodes-base.code","typeVersion":2,"position":[-1160,300]
+    }
+  ],
+  "connections":{
+    "When Called by Workflow":{ "main": [[{"node":"Query","type":"main","index":0}]] },
+    "Query":                   { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"calendar"}]
+}

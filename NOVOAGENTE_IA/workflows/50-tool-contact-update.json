@@ -1,0 +1,29 @@
+{
+  "name": "50 - Tool: contact.update",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1600,300]},
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"UPDATE contacts SET nome = COALESCE(NULLIF(($3::jsonb->>'nome'),''), nome), email = COALESCE(NULLIF(($3::jsonb->>'email'),''), email), telefone = COALESCE(NULLIF(($3::jsonb->>'telefone'),''), telefone), attributes = attributes || COALESCE(($3::jsonb->'attributes'), '{}'::jsonb), tags = CASE WHEN $3::jsonb ? 'tags' THEN (SELECT array_agg(DISTINCT x) FROM unnest(tags || ARRAY(SELECT jsonb_array_elements_text($3::jsonb->'tags'))) x) ELSE tags END WHERE id=$1::uuid AND tenant_id=$2::uuid RETURNING id, nome, email, telefone, attributes, tags;",
+        "options":{"queryReplacement":"={{ $json.contact_id }},={{ $json.tenant_id }},={{ JSON.stringify($json.patch || {}) }}"}
+      },
+      "id":"u","name":"Patch Contact",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1380,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{"assignments":{"assignments":[
+        {"id":"1","name":"ok","value":true,"type":"boolean"},
+        {"id":"2","name":"data","value":"={{ { contact: $json } }}","type":"object"}
+      ]}},
+      "id":"r","name":"Return","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[-1160,300]
+    }
+  ],
+  "connections":{
+    "When Called by Workflow":{ "main": [[{"node":"Patch Contact","type":"main","index":0}]] },
+    "Patch Contact":           { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"contact"}]
+}

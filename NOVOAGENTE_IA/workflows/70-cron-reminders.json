@@ -1,0 +1,72 @@
+{
+  "name": "70 - Cron: Reminders (appointments -24h/-2h)",
+  "nodes": [
+    {"parameters":{"rule":{"interval":[{"field":"minutes","minutesInterval":15}]}},"id":"c","name":"Cron 15min","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.2,"position":[-1600,300]},
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT * FROM vw_appointments_proximas_24h WHERE inicio BETWEEN NOW() + INTERVAL '23 hours' AND NOW() + INTERVAL '24 hours' OR inicio BETWEEN NOW() + INTERVAL '1 hour 45 minutes' AND NOW() + INTERVAL '2 hours' LIMIT 50;"
+      },
+      "id":"q","name":"Due Appointments",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1380,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "jsCode":"return $input.all().map(i => { const a = i.json; const d = new Date(a.inicio); const dd = d.toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',dateStyle:'short',timeStyle:'short'}); return { json: { ...a, texto: `Oi${a.contato_nome?' '+a.contato_nome.split(' ')[0]:''}! Lembrete: você tem \"${a.titulo}\" em ${dd}. Até lá!` } }; });"
+      },
+      "id":"m","name":"Build Msg",
+      "type":"n8n-nodes-base.code","typeVersion":2,"position":[-1160,300]
+    },
+    {
+      "parameters":{
+        "conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"tel","leftValue":"={{ $json.telefone }}","rightValue":"","operator":{"type":"string","operation":"notEmpty"}}],"combinator":"and"}
+      },
+      "id":"i","name":"If Has Phone","type":"n8n-nodes-base.if","typeVersion":2,"position":[-940,300]
+    },
+    {
+      "parameters":{
+        "method":"POST",
+        "url":"=http://{{ $vars.BAILEYS_HOST }}/send-text",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[{"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"}]},
+        "sendBody":true,"specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify({ number: $json.telefone, text: $json.texto }) }}",
+        "options":{"batching":{"batch":{"batchSize":5,"batchInterval":1500}}}
+      },
+      "id":"s","name":"Send WA",
+      "type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[-720,220]
+    },
+    {
+      "parameters":{
+        "sendTo":"={{ $json.email }}",
+        "subject":"=Lembrete: {{ $json.titulo }}",
+        "message":"={{ $json.texto }}",
+        "options":{"appendAttribution":false}
+      },
+      "id":"g","name":"Send Gmail",
+      "type":"n8n-nodes-base.gmail","typeVersion":2.1,"position":[-720,420],
+      "credentials":{"gmailOAuth2":{"id":"GMAIL_OAUTH","name":"Gmail"}}
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"UPDATE appointments SET reminder_sent=NOW() WHERE id=$1::uuid;",
+        "options":{"queryReplacement":"={{ $json.id }}"}
+      },
+      "id":"u","name":"Mark Sent",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-500,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    }
+  ],
+  "connections":{
+    "Cron 15min":     { "main": [[{"node":"Due Appointments","type":"main","index":0}]] },
+    "Due Appointments":{ "main": [[{"node":"Build Msg","type":"main","index":0}]] },
+    "Build Msg":      { "main": [[{"node":"If Has Phone","type":"main","index":0}]] },
+    "If Has Phone":   { "main": [[{"node":"Send WA","type":"main","index":0}],[{"node":"Send Gmail","type":"main","index":0}]] },
+    "Send WA":        { "main": [[{"node":"Mark Sent","type":"main","index":0}]] },
+    "Send Gmail":     { "main": [[{"node":"Mark Sent","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1","saveDataErrorExecution":"all"},
+  "tags":[{"name":"cron"},{"name":"reminders"}]
+}

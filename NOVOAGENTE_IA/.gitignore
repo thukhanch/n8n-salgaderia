@@ -1,0 +1,7 @@
+.env
+*.log
+node_modules/
+pg-data/
+n8n-data/
+baileys-auth/
+.DS_Store

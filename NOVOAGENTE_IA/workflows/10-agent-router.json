@@ -1,0 +1,333 @@
+{
+  "name": "10 - Agent Router (core)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "node-start",
+      "name": "When Called by Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [-1800, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, slug, nome, timezone, config FROM tenants WHERE id = $1::uuid AND ativo = TRUE;",
+        "options": {"queryReplacement": "={{ $json.tenant_id }}"}
+      },
+      "id": "node-get-tenant",
+      "name": "Load Tenant",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-1580, 400],
+      "credentials": {"postgres": {"id": "PG_AGENT", "name": "Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, nome, email, telefone, attributes, estado, contexto, tags FROM contacts WHERE id = $1::uuid;",
+        "options": {"queryReplacement": "={{ $('When Called by Workflow').item.json.contact_id }}"}
+      },
+      "id": "node-get-contact",
+      "name": "Load Contact",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-1360, 400],
+      "credentials": {"postgres": {"id": "PG_AGENT", "name": "Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sender, content, criado_em FROM conversations WHERE contact_id = $1::uuid ORDER BY criado_em DESC LIMIT 12;",
+        "options": {"queryReplacement": "={{ $('When Called by Workflow').item.json.contact_id }}"}
+      },
+      "id": "node-history",
+      "name": "Load History",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-1140, 400],
+      "credentials": {"postgres": {"id": "PG_AGENT", "name": "Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta o contexto completo para o agent: tenant + contact + history + prompt interpolado\nconst t = $('Load Tenant').first().json;\nconst c = $('Load Contact').first().json;\nconst hist = $('Load History').all().map(i => ({ sender: i.json.sender, content: i.json.content })).reverse();\nconst input = $('When Called by Workflow').first().json;\n\n// Interpolação simples do prompt template\nlet prompt = $vars.SYSTEM_PROMPT_TEMPLATE || 'Você é o assistente de {{tenant.nome}}. {{tenant.config.prompt_extra}}';\nconst replacements = {\n  '{{tenant.nome}}': t.nome || '',\n  '{{tenant.slug}}': t.slug || '',\n  '{{tenant.timezone}}': t.timezone || 'America/Sao_Paulo',\n  '{{tenant.config.prompt_extra}}': t.config?.prompt_extra || '',\n  '{{tenant.config.business_hours}}': JSON.stringify(t.config?.business_hours || {}),\n  '{{tenant.config.language}}': t.config?.language || 'pt-BR',\n  '{{contact.nome}}': c?.nome || 'cliente',\n  '{{now}}': new Date().toISOString()\n};\nfor (const [k, v] of Object.entries(replacements)) prompt = prompt.split(k).join(v);\n\nreturn [{ json: {\n  tenant_id: t.id,\n  tenant: t,\n  contact_id: c.id,\n  contact: c,\n  channel: input.channel,\n  message: input.message,\n  media: input.media || null,\n  system_prompt: prompt,\n  history: hist,\n  tools_enabled: t.config?.tools_enabled || []\n}}];"
+      },
+      "id": "node-build-ctx",
+      "name": "Build Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-920, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (tenant_id, contact_id, channel, sender, content) VALUES ($1::uuid,$2::uuid,$3,'contact',$4);\nUPDATE contacts SET ultima_msg_em = NOW() WHERE id = $2::uuid;",
+        "options": {"queryReplacement": "={{ $json.tenant_id }},={{ $json.contact_id }},={{ $json.channel }},={{ $json.message }}"}
+      },
+      "id": "node-log-in",
+      "name": "Log Inbound",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-700, 400],
+      "credentials": {"postgres": {"id": "PG_AGENT", "name": "Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Build Context').item.json.message }}",
+        "options": {
+          "systemMessage": "={{ $('Build Context').item.json.system_prompt }}\n\n## Contexto atual\n- Contato: {{ JSON.stringify($('Build Context').item.json.contact) }}\n- Histórico recente: {{ JSON.stringify($('Build Context').item.json.history) }}\n- Tools habilitadas para este tenant: {{ JSON.stringify($('Build Context').item.json.tools_enabled) }}\n\nUse APENAS as tools listadas em tools_enabled."
+        }
+      },
+      "id": "node-agent",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [-480, 400]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {"temperature": 0.3}
+      },
+      "id": "node-llm",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [-680, 620],
+      "credentials": {"openAiApi": {"id": "OPENAI_KEY", "name": "OpenAI"}}
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Build Context').item.json.contact_id }}",
+        "contextWindowLength": 12
+      },
+      "id": "node-mem",
+      "name": "Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [-560, 620]
+    },
+    {
+      "parameters": {
+        "name": "calendar_check_availability",
+        "description": "Lista horários livres. Input: {from:ISO, to:ISO, duration_min:int}. Use ANTES de agendar.",
+        "workflowId": {"__rl": true, "value": "WF_CAL_CHECK", "mode": "list"},
+        "fields": {"values": [
+          {"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"},
+          {"name":"contact_id","stringValue":"={{ $('Build Context').item.json.contact_id }}"}
+        ]}
+      },
+      "id": "node-tool-cal-check",
+      "name": "Tool: calendar.check_availability",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [-400, 620]
+    },
+    {
+      "parameters": {
+        "name": "calendar_book",
+        "description": "Cria agendamento. Input: {titulo, descricao?, inicio:ISO, duration_min:int}. Chamar SEMPRE depois de check_availability.",
+        "workflowId": {"__rl": true, "value": "WF_CAL_BOOK", "mode": "list"},
+        "fields": {"values": [
+          {"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"},
+          {"name":"contact_id","stringValue":"={{ $('Build Context').item.json.contact_id }}"}
+        ]}
+      },
+      "id": "node-tool-cal-book",
+      "name": "Tool: calendar.book",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [-300, 620]
+    },
+    {
+      "parameters": {
+        "name": "calendar_cancel",
+        "description": "Cancela agendamento. Input: {appointment_id}",
+        "workflowId": {"__rl": true, "value": "WF_CAL_CANCEL", "mode": "list"},
+        "fields": {"values": [{"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"}]}
+      },
+      "id": "node-tool-cal-cancel",
+      "name": "Tool: calendar.cancel",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [-200, 620]
+    },
+    {
+      "parameters": {
+        "name": "calendar_list_mine",
+        "description": "Lista os próximos agendamentos do contato. Sem input.",
+        "workflowId": {"__rl": true, "value": "WF_CAL_LIST", "mode": "list"},
+        "fields": {"values": [
+          {"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"},
+          {"name":"contact_id","stringValue":"={{ $('Build Context').item.json.contact_id }}"}
+        ]}
+      },
+      "id": "node-tool-cal-list",
+      "name": "Tool: calendar.list_mine",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [-100, 620]
+    },
+    {
+      "parameters": {
+        "name": "gmail_send",
+        "description": "Envia e-mail. Input: {to, subject, body_text, body_html?}",
+        "workflowId": {"__rl": true, "value": "WF_GMAIL_SEND", "mode": "list"},
+        "fields": {"values": [{"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"}]}
+      },
+      "id": "node-tool-gmail-send",
+      "name": "Tool: gmail.send",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [0, 620]
+    },
+    {
+      "parameters": {
+        "name": "gmail_search",
+        "description": "Busca e-mails recentes. Input: {query} (sintaxe Gmail)",
+        "workflowId": {"__rl": true, "value": "WF_GMAIL_SEARCH", "mode": "list"},
+        "fields": {"values": [{"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"}]}
+      },
+      "id": "node-tool-gmail-search",
+      "name": "Tool: gmail.search",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [100, 620]
+    },
+    {
+      "parameters": {
+        "name": "payment_create_pix",
+        "description": "Cria cobrança Pix via Mercado Pago e envia QR ao cliente. Input: {amount, description, deal_id?}",
+        "workflowId": {"__rl": true, "value": "WF_PAY_PIX", "mode": "list"},
+        "fields": {"values": [
+          {"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"},
+          {"name":"contact_id","stringValue":"={{ $('Build Context').item.json.contact_id }}"},
+          {"name":"channel","stringValue":"={{ $('Build Context').item.json.channel }}"}
+        ]}
+      },
+      "id": "node-tool-pay-pix",
+      "name": "Tool: payment.create_pix",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [200, 620]
+    },
+    {
+      "parameters": {
+        "name": "payment_status",
+        "description": "Verifica status de um pagamento. Input: {payment_id}",
+        "workflowId": {"__rl": true, "value": "WF_PAY_STATUS", "mode": "list"},
+        "fields": {"values": [{"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"}]}
+      },
+      "id": "node-tool-pay-status",
+      "name": "Tool: payment.status",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [300, 620]
+    },
+    {
+      "parameters": {
+        "name": "contact_update",
+        "description": "Atualiza dados do contato. Input: {patch: {nome?, email?, attributes?}}",
+        "workflowId": {"__rl": true, "value": "WF_CONTACT_UPD", "mode": "list"},
+        "fields": {"values": [
+          {"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"},
+          {"name":"contact_id","stringValue":"={{ $('Build Context').item.json.contact_id }}"}
+        ]}
+      },
+      "id": "node-tool-contact-upd",
+      "name": "Tool: contact.update",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [400, 620]
+    },
+    {
+      "parameters": {
+        "name": "deal_upsert",
+        "description": "Cria/atualiza oportunidade de venda. Input: {titulo, stage, valor, itens?}",
+        "workflowId": {"__rl": true, "value": "WF_DEAL_UPSERT", "mode": "list"},
+        "fields": {"values": [
+          {"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"},
+          {"name":"contact_id","stringValue":"={{ $('Build Context').item.json.contact_id }}"}
+        ]}
+      },
+      "id": "node-tool-deal",
+      "name": "Tool: deal.upsert",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [500, 620]
+    },
+    {
+      "parameters": {
+        "name": "handoff_human",
+        "description": "Escala para humano. Input: {motivo, resumo}",
+        "workflowId": {"__rl": true, "value": "WF_HANDOFF", "mode": "list"},
+        "fields": {"values": [
+          {"name":"tenant_id","stringValue":"={{ $('Build Context').item.json.tenant_id }}"},
+          {"name":"contact_id","stringValue":"={{ $('Build Context').item.json.contact_id }}"}
+        ]}
+      },
+      "id": "node-tool-handoff",
+      "name": "Tool: handoff.human",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [600, 620]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (tenant_id, contact_id, channel, sender, content) VALUES ($1::uuid,$2::uuid,$3,'agent',$4);",
+        "options": {"queryReplacement": "={{ $('Build Context').item.json.tenant_id }},={{ $('Build Context').item.json.contact_id }},={{ $('Build Context').item.json.channel }},={{ $json.output }}"}
+      },
+      "id": "node-log-out",
+      "name": "Log Agent Reply",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [-260, 400],
+      "credentials": {"postgres": {"id": "PG_AGENT", "name": "Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id":"1","name":"ok","value":true,"type":"boolean"},
+          {"id":"2","name":"reply","value":"={{ $('AI Agent').item.json.output }}","type":"string"},
+          {"id":"3","name":"tenant_id","value":"={{ $('Build Context').item.json.tenant_id }}","type":"string"},
+          {"id":"4","name":"contact_id","value":"={{ $('Build Context').item.json.contact_id }}","type":"string"},
+          {"id":"5","name":"channel","value":"={{ $('Build Context').item.json.channel }}","type":"string"}
+        ]}
+      },
+      "id": "node-out",
+      "name": "Return",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-40, 400]
+    }
+  ],
+  "connections": {
+    "When Called by Workflow":{ "main": [[{"node":"Load Tenant","type":"main","index":0}]] },
+    "Load Tenant":             { "main": [[{"node":"Load Contact","type":"main","index":0}]] },
+    "Load Contact":            { "main": [[{"node":"Load History","type":"main","index":0}]] },
+    "Load History":            { "main": [[{"node":"Build Context","type":"main","index":0}]] },
+    "Build Context":           { "main": [[{"node":"Log Inbound","type":"main","index":0}]] },
+    "Log Inbound":             { "main": [[{"node":"AI Agent","type":"main","index":0}]] },
+    "OpenAI Chat Model":       { "ai_languageModel": [[{"node":"AI Agent","type":"ai_languageModel","index":0}]] },
+    "Buffer Memory":           { "ai_memory":        [[{"node":"AI Agent","type":"ai_memory","index":0}]] },
+    "Tool: calendar.check_availability":{ "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: calendar.book":     { "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: calendar.cancel":   { "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: calendar.list_mine":{ "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: gmail.send":        { "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: gmail.search":      { "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: payment.create_pix":{ "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: payment.status":    { "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: contact.update":    { "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: deal.upsert":       { "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "Tool: handoff.human":     { "ai_tool": [[{"node":"AI Agent","type":"ai_tool","index":0}]] },
+    "AI Agent":                { "main": [[{"node":"Log Agent Reply","type":"main","index":0}]] },
+    "Log Agent Reply":         { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active": false,
+  "settings": {"executionOrder":"v1","saveDataErrorExecution":"all"},
+  "tags": [{"name":"agent"},{"name":"core"}]
+}

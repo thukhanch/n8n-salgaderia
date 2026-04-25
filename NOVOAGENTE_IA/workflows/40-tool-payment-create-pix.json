@@ -1,0 +1,129 @@
+{
+  "name": "40 - Tool: payment.create_pix (Mercado Pago)",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1800,300]},
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT config->>'mp_access_token' AS mp_token, nome FROM tenants WHERE id=$1::uuid;",
+        "options":{"queryReplacement":"={{ $json.tenant_id }}"}
+      },
+      "id":"t","name":"Get MP Token",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1580,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"SELECT nome, email, telefone FROM contacts WHERE id=$1::uuid;",
+        "options":{"queryReplacement":"={{ $('When Called by Workflow').item.json.contact_id }}"}
+      },
+      "id":"c","name":"Get Contact",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1360,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"INSERT INTO payments (tenant_id, contact_id, deal_id, provider, method, amount, status) VALUES ($1::uuid,$2::uuid, NULLIF($3,'')::uuid,'mercadopago','pix',$4,'pending') RETURNING id;",
+        "options":{"queryReplacement":"={{ $('When Called by Workflow').item.json.tenant_id }},={{ $('When Called by Workflow').item.json.contact_id }},={{ $('When Called by Workflow').item.json.deal_id || '' }},={{ $('When Called by Workflow').item.json.amount }}"}
+      },
+      "id":"p","name":"Create Payment Row",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1140,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "method":"POST",
+        "url":"https://api.mercadopago.com/v1/payments",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $('Get MP Token').item.json.mp_token || $vars.MP_ACCESS_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"},
+          {"name":"X-Idempotency-Key","value":"={{ $json.id }}"}
+        ]},
+        "sendBody":true,
+        "specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify({ transaction_amount: Number($('When Called by Workflow').item.json.amount), description: $('When Called by Workflow').item.json.description || 'Cobrança', payment_method_id: 'pix', notification_url: $vars.MP_WEBHOOK_URL, external_reference: $json.id, payer: { email: ($('Get Contact').item.json.email || ('contact+' + $('Get Contact').item.json.id + '@demo.local')), first_name: ($('Get Contact').item.json.nome || 'Cliente').split(' ')[0] } }) }}"
+      },
+      "id":"m","name":"MP: Create Pix",
+      "type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[-920,300]
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"UPDATE payments SET provider_id=$2, qr_code=$3, qr_base64=$4, status=$5, raw=$6::jsonb WHERE id=$1::uuid RETURNING *;",
+        "options":{"queryReplacement":"={{ $('Create Payment Row').item.json.id }},={{ String($json.id) }},={{ $json.point_of_interaction?.transaction_data?.qr_code || '' }},={{ $json.point_of_interaction?.transaction_data?.qr_code_base64 || '' }},={{ $json.status }},={{ JSON.stringify($json) }}"}
+      },
+      "id":"u","name":"Save MP",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-700,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters":{
+        "rules":{"values":[
+          {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"wa","leftValue":"={{ $('When Called by Workflow').item.json.channel }}","rightValue":"whatsapp","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"WHATSAPP"},
+          {"conditions":{"options":{"caseSensitive":false},"conditions":[{"id":"gm","leftValue":"={{ $('When Called by Workflow').item.json.channel }}","rightValue":"gmail","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"renameOutput":true,"outputKey":"GMAIL"}
+        ]},
+        "options":{"fallbackOutput":"extra"}
+      },
+      "id":"sw","name":"Switch Channel",
+      "type":"n8n-nodes-base.switch","typeVersion":3.2,"position":[-480,300]
+    },
+    {
+      "parameters":{
+        "method":"POST",
+        "url":"=http://{{ $vars.BAILEYS_HOST }}/send-image",
+        "sendHeaders":true,
+        "headerParameters":{"parameters":[
+          {"name":"Authorization","value":"=Bearer {{ $vars.BAILEYS_SERVICE_TOKEN }}"},
+          {"name":"Content-Type","value":"application/json"}
+        ]},
+        "sendBody":true,
+        "specifyBody":"json",
+        "jsonBody":"={{ JSON.stringify({ number: $('Get Contact').item.json.telefone, imageBase64: $json.qr_base64, caption: 'Pix R$ ' + Number($json.amount).toFixed(2) + '\\n\\nCopia-e-cola:\\n' + $json.qr_code }) }}"
+      },
+      "id":"sw-wa","name":"Send QR (WA)",
+      "type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[-260,180]
+    },
+    {
+      "parameters":{
+        "sendTo":"={{ $('Get Contact').item.json.email }}",
+        "subject":"=Cobrança Pix - R$ {{ Number($json.amount).toFixed(2) }}",
+        "emailType":"html",
+        "message":"=<p>Olá, segue sua cobrança via Pix no valor de R$ {{ Number($json.amount).toFixed(2) }}.</p><p><b>Copia-e-cola:</b></p><pre>{{ $json.qr_code }}</pre>",
+        "options":{"appendAttribution":false}
+      },
+      "id":"sw-gm","name":"Send QR (Gmail)",
+      "type":"n8n-nodes-base.gmail","typeVersion":2.1,"position":[-260,300],
+      "credentials":{"gmailOAuth2":{"id":"GMAIL_OAUTH","name":"Gmail"}}
+    },
+    {
+      "parameters":{
+        "assignments":{"assignments":[
+          {"id":"1","name":"ok","value":true,"type":"boolean"},
+          {"id":"2","name":"data","value":"={{ { payment_id: $('Save MP').item.json.id, provider_id: $('Save MP').item.json.provider_id, amount: $('Save MP').item.json.amount, qr_code: $('Save MP').item.json.qr_code } }}","type":"object"}
+        ]}
+      },
+      "id":"r","name":"Return",
+      "type":"n8n-nodes-base.set","typeVersion":3.4,"position":[-40,300]
+    }
+  ],
+  "connections":{
+    "When Called by Workflow":{ "main": [[{"node":"Get MP Token","type":"main","index":0}]] },
+    "Get MP Token":            { "main": [[{"node":"Get Contact","type":"main","index":0}]] },
+    "Get Contact":             { "main": [[{"node":"Create Payment Row","type":"main","index":0}]] },
+    "Create Payment Row":      { "main": [[{"node":"MP: Create Pix","type":"main","index":0}]] },
+    "MP: Create Pix":          { "main": [[{"node":"Save MP","type":"main","index":0}]] },
+    "Save MP":                 { "main": [[{"node":"Switch Channel","type":"main","index":0}]] },
+    "Switch Channel":          { "main": [
+      [{"node":"Send QR (WA)","type":"main","index":0}],
+      [{"node":"Send QR (Gmail)","type":"main","index":0}],
+      [{"node":"Return","type":"main","index":0}]
+    ]},
+    "Send QR (WA)":            { "main": [[{"node":"Return","type":"main","index":0}]] },
+    "Send QR (Gmail)":         { "main": [[{"node":"Return","type":"main","index":0}]] }
+  },
+  "active":false,"settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"payment"},{"name":"mercadopago"}]
+}

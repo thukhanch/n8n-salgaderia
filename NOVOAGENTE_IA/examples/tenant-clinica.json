@@ -1,0 +1,22 @@
+{
+  "slug": "clinica-exemplo",
+  "nome": "Clínica Exemplo",
+  "timezone": "America/Sao_Paulo",
+  "config": {
+    "prompt_extra": "Você atende pacientes de uma clínica médica multiespecialidade. Seja acolhedora e profissional. Nunca dê diagnóstico — só agende consultas.\n\nEspecialidades: Clínico Geral, Dermatologia, Psicologia.\nDuração padrão: 50min. Convênios aceitos: Bradesco, Amil, Unimed. Particular: R$ 300.",
+    "business_hours": {
+      "mon": ["08:00-12:00","14:00-19:00"],
+      "tue": ["08:00-12:00","14:00-19:00"],
+      "wed": ["08:00-12:00","14:00-19:00"],
+      "thu": ["08:00-12:00","14:00-19:00"],
+      "fri": ["08:00-12:00","14:00-18:00"],
+      "sat": ["09:00-13:00"]
+    },
+    "appointment_default_min": 50,
+    "calendar_id": "primary",
+    "gmail_from": "atendimento@clinica-exemplo.com.br",
+    "tools_enabled": ["calendar.check_availability","calendar.book","calendar.cancel","calendar.list_mine","gmail.send","contact.update","handoff.human"],
+    "handoff_channel": "https://hooks.slack.com/services/xxx",
+    "language": "pt-BR"
+  }
+}

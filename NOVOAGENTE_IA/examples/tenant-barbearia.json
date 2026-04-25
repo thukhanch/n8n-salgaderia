@@ -1,0 +1,22 @@
+{
+  "slug": "barbearia-exemplo",
+  "nome": "Barbearia Exemplo",
+  "timezone": "America/Sao_Paulo",
+  "config": {
+    "prompt_extra": "Você atende uma barbearia. Linguagem informal, descontraída. Pode brincar mas mantenha o profissionalismo.\n\nServiços:\n- Corte: R$ 50 (30min)\n- Barba: R$ 35 (20min)\n- Corte + Barba: R$ 75 (50min)\nBarbeiros: Chico, João, Pedro (o cliente pode escolher ou deixar livre).",
+    "business_hours": {
+      "tue": ["09:00-19:00"],"wed": ["09:00-19:00"],"thu": ["09:00-19:00"],
+      "fri": ["09:00-20:00"],"sat": ["08:00-18:00"]
+    },
+    "appointment_default_min": 30,
+    "products": [
+      {"sku":"CORTE","name":"Corte","price":50,"duration_min":30},
+      {"sku":"BARBA","name":"Barba","price":35,"duration_min":20},
+      {"sku":"COMBO","name":"Corte + Barba","price":75,"duration_min":50}
+    ],
+    "calendar_id": "primary",
+    "tools_enabled": ["calendar.check_availability","calendar.book","calendar.cancel","calendar.list_mine","payment.create_pix","contact.update","deal.upsert","handoff.human"],
+    "mp_access_token": "APP_USR-barbearia-token",
+    "language": "pt-BR"
+  }
+}

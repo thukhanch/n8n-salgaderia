@@ -1,0 +1,56 @@
+{
+  "name": "20 - Tool: calendar.check_availability",
+  "nodes": [
+    {"parameters":{},"id":"s","name":"When Called by Workflow","type":"n8n-nodes-base.executeWorkflowTrigger","typeVersion":1.1,"position":[-1600,300]},
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT config->>'calendar_id' AS calendar_id, config->'business_hours' AS bh, timezone FROM tenants WHERE id=$1::uuid;",
+        "options": {"queryReplacement":"={{ $json.tenant_id }}"}
+      },
+      "id":"t","name":"Get Tenant Calendar",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-1380,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    },
+    {
+      "parameters": {
+        "resource":"event",
+        "operation":"getAll",
+        "calendar":{"__rl":true,"value":"={{ $json.calendar_id || 'primary' }}","mode":"id"},
+        "timeMin":"={{ $('When Called by Workflow').item.json.from }}",
+        "timeMax":"={{ $('When Called by Workflow').item.json.to }}",
+        "returnAll":true,
+        "options":{"singleEvents":true,"orderBy":"startTime"}
+      },
+      "id":"g","name":"GCal: List Events",
+      "type":"n8n-nodes-base.googleCalendar","typeVersion":1.3,"position":[-1160,300],
+      "credentials":{"googleCalendarOAuth2Api":{"id":"GCAL_OAUTH","name":"Google Calendar"}}
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calcula slots livres subtraindo eventos ocupados da janela solicitada.\nconst tenant = $('Get Tenant Calendar').first().json;\nconst input  = $('When Called by Workflow').first().json;\nconst eventos = $input.all().map(i => ({ start: new Date(i.json.start?.dateTime || i.json.start?.date), end: new Date(i.json.end?.dateTime || i.json.end?.date) })).filter(e => !isNaN(e.start));\n\nconst step  = (input.duration_min || 60) * 60 * 1000;\nconst from  = new Date(input.from).getTime();\nconst to    = new Date(input.to).getTime();\nconst bh    = tenant.bh || {};\nconst tz    = tenant.timezone || 'America/Sao_Paulo';\n\nconst weekdays = ['sun','mon','tue','wed','thu','fri','sat'];\nfunction inBusinessHours(dateStart, dateEnd) {\n  const wd = weekdays[dateStart.getDay()];\n  const ranges = bh[wd] || [];\n  if (!ranges.length) return false;\n  const hhmm = d => d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');\n  return ranges.some(r => { const [a,b] = r.split('-'); return hhmm(dateStart) >= a && hhmm(dateEnd) <= b; });\n}\nfunction overlaps(aS,aE) { return eventos.some(e => aS < e.end && aE > e.start); }\n\nconst slots = [];\nfor (let t = from; t + step <= to; t += step) {\n  const s = new Date(t), e = new Date(t + step);\n  if (!inBusinessHours(s, e)) continue;\n  if (overlaps(s, e)) continue;\n  slots.push({ start: s.toISOString(), end: e.toISOString() });\n  if (slots.length >= 8) break;\n}\n\n// log tool_call\nreturn [{ json: { ok: true, data: { slots, timezone: tz } } }];"
+      },
+      "id":"c","name":"Compute Free Slots",
+      "type":"n8n-nodes-base.code","typeVersion":2,"position":[-940,300]
+    },
+    {
+      "parameters":{
+        "operation":"executeQuery",
+        "query":"INSERT INTO tool_calls (tenant_id, contact_id, tool, input, output, success) VALUES ($1::uuid, NULLIF($2,'')::uuid, 'calendar.check_availability', $3::jsonb, $4::jsonb, TRUE);",
+        "options":{"queryReplacement":"={{ $('When Called by Workflow').item.json.tenant_id }},={{ $('When Called by Workflow').item.json.contact_id || '' }},={{ JSON.stringify($('When Called by Workflow').item.json) }},={{ JSON.stringify($json) }}"}
+      },
+      "id":"l","name":"Log Tool Call",
+      "type":"n8n-nodes-base.postgres","typeVersion":2.5,"position":[-720,300],
+      "credentials":{"postgres":{"id":"PG_AGENT","name":"Postgres Agent"}}
+    }
+  ],
+  "connections": {
+    "When Called by Workflow":{ "main": [[{"node":"Get Tenant Calendar","type":"main","index":0}]] },
+    "Get Tenant Calendar":    { "main": [[{"node":"GCal: List Events","type":"main","index":0}]] },
+    "GCal: List Events":      { "main": [[{"node":"Compute Free Slots","type":"main","index":0}]] },
+    "Compute Free Slots":     { "main": [[{"node":"Log Tool Call","type":"main","index":0}]] }
+  },
+  "active": false,
+  "settings":{"executionOrder":"v1"},
+  "tags":[{"name":"tool"},{"name":"calendar"}]
+}
